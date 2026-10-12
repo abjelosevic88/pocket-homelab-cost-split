@@ -362,3 +362,9 @@ a.stat:hover { border-color: var(--accent); text-decoration: none; }
   .group-grid { grid-template-columns: 1fr; }
   .stats { grid-template-columns: 1fr 1fr; }
 }
+
+/* ---- version in the sidebar footer ---- */
+.sidebar .foot .foot-id { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.sidebar .foot .foot-id > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .foot .ver { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.sidebar .foot .ver:hover { color: var(--accent-hover); text-decoration: none; }
