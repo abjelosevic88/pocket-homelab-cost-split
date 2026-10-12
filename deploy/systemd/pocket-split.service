@@ -1,0 +1,21 @@
+[Unit]
+Description=Pocket Split
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pocket-split
+Group=pocket-split
+WorkingDirectory=/var/lib/pocket-split
+Environment=DATA_DIR=/var/lib/pocket-split PORT=8080 TZ=Europe/Berlin BASE_URL=https://split.example.com
+ExecStart=/usr/local/bin/pocket-split
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pocket-split
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
