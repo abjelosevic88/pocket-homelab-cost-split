@@ -38,7 +38,7 @@ export default function Login({ mode }: { mode: 'login' | 'setup' }) {
           </form>
         </Card>
         {mode === 'setup' && <p className="muted small mt">You become the admin. Others get their own account under Settings → Users and see the groups they are in.</p>}
-        {status?.version && <p className="muted small right mt">v{status.version}</p>}
+        {status?.version && <p className="muted small right mt">v{status.version.replace(/^v/, '')}</p>}
       </div>
     </div>
   )
