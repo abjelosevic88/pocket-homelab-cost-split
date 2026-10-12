@@ -21,7 +21,7 @@ Create tokens under **Settings → API tokens**. A token acts as the user who cr
 | `GET` | `/groups/{id}/stats` | Totals by month, category, member and currency (see below). |
 | `GET` | `/groups/{id}/activity` | Newest first, `limit=` (default 50). |
 | `GET` | `/groups/{id}/export.json` · `export.csv` | Full export; CSV has one column per person with their part in the group currency. |
-| `GET` | `/groups/{id}/report` | Filtered summary: who owes whom (`settlements`, the whole group as of now; `selection_settlements` within the filter), totals, per person, by category, by month, expense list, currencies. Filters: `from=`, `to=` (YYYY-MM-DD), `categories=a,b`, `member=` (paid or shared), `reimbursements=include` (default: excluded), `debts=1` to add the who-owes-whom section. |
+| `GET` | `/groups/{id}/report` | Filtered summary: who owes whom (`settlements`, the whole group as of now), totals, per person, by category, by month, `expenses` and `payments` lists, currencies. Filters: `from=`, `to=` (YYYY-MM-DD), `categories=a,b`, `member=` (paid or shared), `reimbursements=include` (default: excluded), `debts=1` to add the who-owes-whom section. |
 | `GET` | `/groups/{id}/report.pdf` | The same report as an A4 PDF (same filters). |
 | `POST` | `/import` | Body = an `export.json`. Creates a new group "(imported)" with its people and expenses at the stored rates. |
 

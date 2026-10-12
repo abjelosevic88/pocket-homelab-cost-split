@@ -19,8 +19,8 @@ interface Report {
   months: { month: string; total: number; count: number }[]
   expenses: { id: number; date: string; title: string; category: string; category_label: string; paid_by: string; amount: number; currency: string; amount_group: number; reimbursement: boolean; for: string; notes: string }[]
   currencies: { currency: string; total: number; count: number }[]
+  payments: Report['expenses']
   settlements: Debt[]
-  selection_settlements: Debt[] | null
   filtered: boolean
 }
 interface Debt { from: number; to: number; from_name: string; to_name: string; amount: number }
@@ -97,7 +97,7 @@ export default function Reports() {
             </div>
           </Field>
           <label className="row"><input type="checkbox" checked={payments} onChange={e => setPayments(e.target.checked)} style={{ width: 'auto' }} /> Include settle-up payments (they are never counted as spending)</label>
-          <label className="row"><input type="checkbox" checked={debts} onChange={e => setDebts(e.target.checked)} style={{ width: 'auto' }} /> Show who owes whom (the group's open debts as of today, and within the selection)</label>
+          <label className="row"><input type="checkbox" checked={debts} onChange={e => setDebts(e.target.checked)} style={{ width: 'auto' }} /> Show who owes whom (the group's open debts as of today)</label>
         </div>
       </Card>
 
@@ -111,19 +111,13 @@ export default function Reports() {
             <div className="stat"><div className="n">{rep.categories.length}</div><div className="l">{rep.categories.length === 1 ? 'Category' : 'Categories'}</div></div>
             <div className="stat"><div className="n"><Money minor={rep.reimbursed} code={cur} /></div><div className="l">Settle-up payments{!payments && ' (not shown)'}</div></div>
           </div>
-          {debts && <div className={rep.filtered ? 'two-col' : ''}>
+          {debts && (
             <Card title="Who owes whom" className="owes-card">
-              <p className="muted small">The group's open debts as of today, counting every expense and payment so far, not just this selection. Paying these settles the group with the fewest transfers.</p>
+              <p className="muted small">Open debts in the group as of today, counting every expense and payment made so far. Paying these settles everything with the fewest transfers.</p>
               <DebtList debts={rep.settlements} cur={cur} />
             </Card>
-            {rep.filtered && (
-              <Card title="Within this selection only" className="owes-card">
-                <p className="muted small">The same arithmetic over just the expenses in this report: who paid more than their part of these particular expenses, and who paid less.</p>
-                <DebtList debts={rep.selection_settlements || []} cur={cur} />
-              </Card>
-            )}
-          </div>}
-          {rep.count === 0 && rep.expenses.length === 0 ? <Empty title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
+          )}
+          {rep.count === 0 && rep.expenses.length === 0 && rep.payments.length === 0 ? <Empty title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
             <>
               <div className={`two-col ${debts ? 'mt' : ''}`}>
                 <Card title="Per person" flush>
@@ -159,7 +153,7 @@ export default function Reports() {
                   <thead><tr><th>Date</th><th>Expense</th><th>Category</th><th>Paid by</th><th>For</th><th className="right">Amount</th></tr></thead>
                   <tbody>
                     {rep.expenses.map(e => (
-                      <tr key={e.id} className={e.reimbursement ? 'muted' : ''}>
+                      <tr key={e.id}>
                         <td className="muted" style={{ whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</td>
                         <td><Link to={`/groups/${rep.group.id}/expenses/${e.id}`}>{e.title}</Link>{e.notes && <div className="muted small">{e.notes}</div>}</td>
                         <td className="muted">{e.category_label}</td>
@@ -171,6 +165,26 @@ export default function Reports() {
                   </tbody>
                 </table>
               </Card>
+              {rep.payments.length > 0 && (
+                <Card title={`Payments (${rep.payments.length})`} className="mt" flush>
+                  <p className="muted small" style={{ padding: '12px 16px 0' }}>Money handed from one person to another to settle up. Not counted as spending.</p>
+                  <table className="table compact report-table">
+                    <thead><tr><th>Date</th><th>From</th><th>To</th><th>Category</th><th>Note</th><th className="right">Amount</th></tr></thead>
+                    <tbody>
+                      {rep.payments.map(e => (
+                        <tr key={e.id}>
+                          <td className="muted" style={{ whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</td>
+                          <td>{e.paid_by}</td>
+                          <td>{e.for}</td>
+                          <td className="muted">{e.category_label}</td>
+                          <td className="muted"><Link to={`/groups/${rep.group.id}/expenses/${e.id}`}>{[e.title, e.notes].filter(Boolean).join(' · ') || 'open'}</Link></td>
+                          <td className="right" style={{ whiteSpace: 'nowrap' }}><Money minor={e.amount_group} code={cur} />{e.currency !== cur && <div className="muted small"><Money minor={e.amount} code={e.currency} /></div>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Card>
+              )}
               {rep.currencies.length > 1 && (
                 <Card title="Currencies used" className="mt">
                   <table className="table compact"><thead><tr><th>Currency</th><th>Expenses</th><th className="right">Paid</th></tr></thead>
