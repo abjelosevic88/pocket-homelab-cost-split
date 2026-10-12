@@ -28,7 +28,7 @@ export default function ExpenseForm() {
   const { id, eid } = useParams()
   const navigate = useNavigate()
   const { toast } = useToast()
-  const { categories, currencies, settings } = useApp()
+  const { categories, currencies, settings, reloadMeta } = useApp()
   const { data: g } = useAsync(() => api.get<Group>(`${V1}/groups/${id}`), [id])
   const { data: existing, loading: loadingE } = useAsync(() => eid ? api.get<Expense>(`${V1}/groups/${id}/expenses/${eid}`) : Promise.resolve(null), [id, eid])
   const editing = Boolean(eid)
@@ -160,7 +160,10 @@ export default function ExpenseForm() {
               <Field group label={reimb ? 'Paid by' : 'Who paid'}><Select value={paidBy} onChange={setPaidBy} options={memberOpts} ariaLabel="Paid by" /></Field>
               <Field label="Date"><input type="date" value={date} onChange={e => { setDate(e.target.value); if (!rateTouched.current) setRateInfo(null) }} required /></Field>
             </div>
-            {!reimb && <Field group label="Category"><Select value={category} onChange={setCategory} options={categories.map(c => ({ value: c.ID, label: `${c.Icon} ${c.Label}` }))} ariaLabel="Category" /></Field>}
+            {!reimb && <Field group label="Category" help="Type a name that is not in the list to add it.">
+              <Select value={category} onChange={setCategory} options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Category" createLabel="Add category"
+                onCreate={async label => { const c = await api.post<{ id: string }>(`${V1}/categories`, { label }); await reloadMeta(); return c.id }} />
+            </Field>}
             <Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={reimb ? 'Cash, bank transfer…' : 'Anything worth remembering'} /></Field>
           </div>
         </Card>

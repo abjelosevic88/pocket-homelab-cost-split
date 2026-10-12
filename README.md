@@ -53,11 +53,12 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 | Area | What you get |
 |---|---|
 | **Groups** | Name, description, main currency (any ISO 4217 code), people with or without accounts, archive, delete. Everyone linked to the group sees it; admins see all. |
-| **Expenses** | Title, amount, currency, exchange rate, who paid, date, category (14 fixed ones with icons), notes. Split evenly / by shares / by percentage / by amount. Search, filter by person or category, grouped by month with monthly totals. |
+| **Expenses** | Title, amount, currency, exchange rate, who paid, date, category (14 built in, add your own from the form), notes. Split evenly / by shares / by percentage / by amount. Search, filter by person or category, grouped by month with monthly totals. |
 | **Currencies** | The full ISO 4217 list with correct decimals (¥ has none, BHD has three). Rates from [Frankfurter](https://frankfurter.app) (ECB, historical) with [ExchangeRate-API](https://www.exchangerate-api.com/docs/free) as fallback for the rest (BAM, RSD, …); cached per pair and day; always editable. |
 | **Balances** | Paid minus share per person, in the group currency. Settle-up suggestions with the fewest payments; *Mark as paid* records a reimbursement. |
 | **Stats** | Total, per head, your share, by month, by category, who paid vs whose share, which currencies were used. |
 | **Home** | What you owe and are owed per currency across all groups, your share this month, recent activity. |
+| **Settings** | App title, default currency, date and time format, editable categories with icons. |
 | **Users** | Built-in login (multi-user, admin/member), or trust your SSO proxy's header, or no login on a trusted LAN. Personal API tokens. |
 | **Data** | SQLite backup from the UI/CLI/API, group export as JSON (re-importable) or CSV (one column per person), activity log per group, Prometheus `/metrics`. |
 

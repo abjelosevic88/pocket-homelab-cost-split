@@ -57,6 +57,60 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// ---- dates: the format comes from Settings → General and is set once by the app context.
+export type DateFormat = 'auto' | 'dmy-dot' | 'dmy-slash' | 'mdy-slash' | 'ymd' | 'dmmmy' | 'mmmdy'
+export type TimeFormat = 'auto' | '24h' | '12h'
+let DATE_FMT: DateFormat = 'auto'
+let TIME_FMT: TimeFormat = 'auto'
+export function setDateFormats(d: DateFormat, t: TimeFormat) { DATE_FMT = d; TIME_FMT = t }
+
+export const DATE_FORMATS: { id: DateFormat; label: string }[] = [
+  { id: 'auto', label: 'Browser locale' }, { id: 'dmy-dot', label: '31.12.2026' }, { id: 'dmy-slash', label: '31/12/2026' },
+  { id: 'mdy-slash', label: '12/31/2026' }, { id: 'ymd', label: '2026-12-31' }, { id: 'dmmmy', label: '31 Dec 2026' }, { id: 'mmmdy', label: 'Dec 31, 2026' },
+]
+export const TIME_FORMATS: { id: TimeFormat; label: string }[] = [{ id: 'auto', label: 'Browser locale' }, { id: '24h', label: '17:05' }, { id: '12h', label: '5:05 PM' }]
+
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** Format a calendar date (y, m 1-12, d) in the chosen format; withYear=false drops the year for nearby dates. */
+export function fmtYMD(y: number, m: number, d: number, withYear = true, fmt: DateFormat = DATE_FMT): string {
+  const dd = String(d).padStart(2, '0'), mm = String(m).padStart(2, '0')
+  switch (fmt) {
+    case 'dmy-dot': return withYear ? `${dd}.${mm}.${y}` : `${dd}.${mm}.`
+    case 'dmy-slash': return withYear ? `${dd}/${mm}/${y}` : `${dd}/${mm}`
+    case 'mdy-slash': return withYear ? `${mm}/${dd}/${y}` : `${mm}/${dd}`
+    case 'ymd': return withYear ? `${y}-${mm}-${dd}` : `${mm}-${dd}`
+    case 'dmmmy': return withYear ? `${d} ${MON[m - 1]} ${y}` : `${d} ${MON[m - 1]}`
+    case 'mmmdy': return withYear ? `${MON[m - 1]} ${d}, ${y}` : `${MON[m - 1]} ${d}`
+    default: return new Date(y, m - 1, d).toLocaleDateString(undefined, withYear ? { day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' })
+  }
+}
+
+/** "2026-03-14" → "14 Mar 2026" (or the chosen format); "" stays "". */
+export function fmtDate(d: string, withYear = true): string {
+  if (!d) return ''
+  const [y, m, day] = d.slice(0, 10).split('-').map(Number)
+  return fmtYMD(y, m, day, withYear)
+}
+
+export function fmtTime(t: Date, fmt: TimeFormat = TIME_FMT): string {
+  const h = t.getHours(), mi = String(t.getMinutes()).padStart(2, '0')
+  switch (fmt) {
+    case '24h': return `${String(h).padStart(2, '0')}:${mi}`
+    case '12h': return `${h % 12 || 12}:${mi} ${h < 12 ? 'AM' : 'PM'}`
+    default: return t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  }
+}
+
+/** ISO timestamp → "14 Mar 2026 17:05" in the chosen formats. */
+export function fmtDateTime(iso: string): string {
+  if (!iso) return ''
+  const t = new Date(iso)
+  if (Number.isNaN(t.getTime())) return iso
+  return `${fmtYMD(t.getFullYear(), t.getMonth() + 1, t.getDate())} ${fmtTime(t)}`
+}
+
+/** Relative for the last week ("3 h ago"), the full date and time after that. */
 export function ago(iso: string): string {
   const t = new Date(iso).getTime()
   const s = Math.max(0, (Date.now() - t) / 1000)
@@ -64,14 +118,7 @@ export function ago(iso: string): string {
   if (s < 3600) return `${Math.floor(s / 60)} min ago`
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`
   if (s < 86400 * 7) return `${Math.floor(s / 86400)} d ago`
-  return new Date(iso).toLocaleDateString()
-}
-
-/** "2026-03-14" → "14 Mar 2026"; "" stays "". */
-export function fmtDate(d: string, withYear = true): string {
-  if (!d) return ''
-  const [y, m, day] = d.slice(0, 10).split('-').map(Number)
-  return new Date(y, m - 1, day).toLocaleDateString(undefined, withYear ? { day: 'numeric', month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' })
+  return fmtDateTime(iso)
 }
 
 /** "2026-11" → "November 2026". */

@@ -114,6 +114,9 @@ func (s *Server) Router() http.Handler {
 			r.Get("/activity", s.handleAllActivity)
 			r.Get("/currencies", s.handleCurrencies)
 			r.Get("/categories", s.handleCategories)
+			r.Post("/categories", s.handleCreateCategory)
+			r.Put("/categories/{id}", s.handleUpdateCategory)
+			r.Delete("/categories/{id}", s.handleDeleteCategory)
 			r.Get("/fx", s.handleFx)
 
 			r.Get("/groups", s.handleListGroups)

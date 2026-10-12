@@ -2,21 +2,24 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
-import type { APIToken, Group, Settings as SettingsT, User } from '../lib/types'
+import type { APIToken, Category, Group, Settings as SettingsT, User } from '../lib/types'
 import { Card, Confirm, Field, Loading, Modal, PageHeader, Segmented, Tabs, useAsync, useToast } from '../components/ui'
 import { Avatar } from '../components/people'
 import { CurrencySelect } from '../components/Money'
+import { Select } from '../components/Select'
+import { DATE_FORMATS, TIME_FORMATS, fmtDateTime, fmtYMD, fmtTime } from '../lib/money'
 
-type Tab = 'general' | 'users' | 'profile' | 'api' | 'data' | 'about'
+type Tab = 'general' | 'categories' | 'users' | 'profile' | 'api' | 'data' | 'about'
 
 export default function Settings() {
   const [tab, setTab] = useState<Tab>(() => (new URLSearchParams(window.location.search).get('tab') as Tab) || 'general')
   return (
     <>
       <PageHeader title="Settings" />
-      <Tabs tabs={[{ id: 'general', label: 'General' }, { id: 'users', label: 'Users' }, { id: 'profile', label: 'Profile' }, { id: 'api', label: 'API tokens' }, { id: 'data', label: 'Backup & data' }, { id: 'about', label: 'About' }]} value={tab} onChange={setTab} />
+      <Tabs tabs={[{ id: 'general', label: 'General' }, { id: 'categories', label: 'Categories' }, { id: 'users', label: 'Users' }, { id: 'profile', label: 'Profile' }, { id: 'api', label: 'API tokens' }, { id: 'data', label: 'Backup & data' }, { id: 'about', label: 'About' }]} value={tab} onChange={setTab} />
       <div className="mt">
         {tab === 'general' && <General />}
+        {tab === 'categories' && <Categories />}
         {tab === 'users' && <Users />}
         {tab === 'profile' && <Profile />}
         {tab === 'api' && <Tokens />}
@@ -46,6 +49,14 @@ function General() {
           <Field label="App title" help="Shown in the sidebar and browser tab."><input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} maxLength={40} disabled={!isAdmin} /></Field>
           <Field group label="Default currency for new groups" help="Every group can pick its own."><CurrencySelect value={f.default_currency} onChange={c => setF({ ...f, default_currency: c })} disabled={!isAdmin} /></Field>
           <label className="row"><input type="checkbox" checked={f.fx_auto} onChange={e => setF({ ...f, fx_auto: e.target.checked })} style={{ width: 'auto' }} disabled={!isAdmin} /> Look exchange rates up automatically</label>
+          <div className="two-col tight">
+            <Field group label="Date format" help={`Today: ${fmtYMD(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate(), true, f.date_format)}`}>
+              <Select value={f.date_format || 'auto'} onChange={v => setF({ ...f, date_format: v as SettingsT['date_format'] })} options={DATE_FORMATS.map(d => ({ value: d.id, label: d.label }))} disabled={!isAdmin} ariaLabel="Date format" />
+            </Field>
+            <Field group label="Time format" help={`Now: ${fmtTime(new Date(), f.time_format)}`}>
+              <Select value={f.time_format || 'auto'} onChange={v => setF({ ...f, time_format: v as SettingsT['time_format'] })} options={TIME_FORMATS.map(t => ({ value: t.id, label: t.label }))} disabled={!isAdmin} ariaLabel="Time format" />
+            </Field>
+          </div>
           {isAdmin ? <div><button className="btn primary" onClick={save} disabled={busy}>Save</button></div> : <p className="muted small">Only an admin can change these.</p>}
         </div>
       </Card>
@@ -161,7 +172,7 @@ function Tokens() {
       {data && data.length > 0 ? (
         <table className="table compact">
           <thead><tr><th>Name</th><th>Prefix</th><th>Last used</th><th>Created</th><th /></tr></thead>
-          <tbody>{data.map(t => <tr key={t.id}><td>{t.name}</td><td className="mono">{t.prefix}…</td><td className="muted">{t.last_used_at ? t.last_used_at.slice(0, 16).replace('T', ' ') : 'never'}</td><td className="muted">{t.created_at.slice(0, 10)}</td><td className="right"><button className="btn ghost sm danger-text" onClick={() => setDel(t)}>Revoke</button></td></tr>)}</tbody>
+          <tbody>{data.map(t => <tr key={t.id}><td>{t.name}</td><td className="mono">{t.prefix}…</td><td className="muted">{t.last_used_at ? fmtDateTime(t.last_used_at) : 'never'}</td><td className="muted">{fmtDateTime(t.created_at)}</td><td className="right"><button className="btn ghost sm danger-text" onClick={() => setDel(t)}>Revoke</button></td></tr>)}</tbody>
         </table>
       ) : <p className="muted">No tokens yet.</p>}
       {del && <Confirm title={`Revoke “${del.name}”?`} message="Anything using this token stops working immediately." onCancel={() => setDel(null)} onConfirm={async () => { await api.del(`${V1}/tokens/${del.id}`); setDel(null); reload() }} />}
@@ -212,6 +223,59 @@ function About() {
           </tbody>
         </table>
       )}
+    </Card>
+  )
+}
+
+function Categories() {
+  const { user, categories, reloadMeta } = useApp()
+  const { toast } = useToast()
+  const isAdmin = user?.role === 'admin'
+  const [draft, setDraft] = useState<Record<string, { label: string; icon: string }>>({})
+  const [add, setAdd] = useState({ label: '', icon: '' })
+  const [del, setDel] = useState<Category | null>(null)
+  const [busy, setBusy] = useState(false)
+  const run = async (fn: () => Promise<unknown>, msg: string) => { setBusy(true); try { await fn(); await reloadMeta(); toast(msg) } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) } }
+  const d = (c: Category) => draft[c.id] || { label: c.label, icon: c.icon }
+  const changed = (c: Category) => draft[c.id] && (draft[c.id].label !== c.label || draft[c.id].icon !== c.icon)
+  const save = (c: Category) => run(async () => { await api.put(`${V1}/categories/${c.id}`, d(c)); setDraft(x => { const y = { ...x }; delete y[c.id]; return y }) }, 'Saved')
+  const move = (c: Category, dir: -1 | 1) => {
+    const i = categories.findIndex(x => x.id === c.id), j = i + dir
+    if (j < 0 || j >= categories.length) return
+    const o = categories[j]
+    run(async () => { await api.put(`${V1}/categories/${c.id}`, { sort_order: j + 1 }); await api.put(`${V1}/categories/${o.id}`, { sort_order: i + 1 }) }, 'Moved')
+  }
+  const create = (e: React.FormEvent) => { e.preventDefault(); if (!add.label.trim()) return; run(async () => { await api.post(`${V1}/categories`, add); setAdd({ label: '', icon: '' }) }, 'Category added') }
+  return (
+    <Card title="Categories">
+      <p className="muted">What an expense is for. Everyone can add a category, also straight from the expense form by typing a name that is not in the list. {isAdmin ? 'Rename, reorder or remove them here; expenses of a removed category move to General.' : 'An admin can rename, reorder or remove them.'}</p>
+      <table className="table compact cat-table">
+        <thead><tr><th style={{ width: 70 }}>Icon</th><th>Name</th><th>Used</th><th /></tr></thead>
+        <tbody>
+          {categories.map((c, i) => (
+            <tr key={c.id}>
+              <td><input value={d(c).icon} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), icon: e.target.value } })} maxLength={8} disabled={!isAdmin} aria-label={`Icon for ${c.label}`} style={{ width: 56, textAlign: 'center' }} /></td>
+              <td><input value={d(c).label} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), label: e.target.value } })} maxLength={60} disabled={!isAdmin} aria-label={`Name of ${c.label}`} /></td>
+              <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.count} {c.count === 1 ? 'expense' : 'expenses'}{c.builtin && <span className="badge" style={{ marginLeft: 6 }}>built-in</span>}</td>
+              <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                {isAdmin && <>
+                  {changed(c) && <button className="btn primary sm" onClick={() => save(c)} disabled={busy}>Save</button>}
+                  <button className="btn ghost sm" onClick={() => move(c, -1)} disabled={busy || i === 0} title="Move up">↑</button>
+                  <button className="btn ghost sm" onClick={() => move(c, 1)} disabled={busy || i === categories.length - 1} title="Move down">↓</button>
+                  {c.id !== 'general' && <button className="btn ghost sm danger-text" onClick={() => setDel(c)} disabled={busy}>Remove</button>}
+                </>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <form onSubmit={create} className="row wrap mt">
+        <input value={add.icon} onChange={e => setAdd({ ...add, icon: e.target.value })} placeholder="🏷️" maxLength={8} style={{ width: 64, textAlign: 'center' }} aria-label="Icon" />
+        <input value={add.label} onChange={e => setAdd({ ...add, label: e.target.value })} placeholder="New category, e.g. Ski passes" maxLength={60} style={{ flex: '1 1 200px' }} aria-label="New category name" />
+        <button className="btn primary" disabled={busy || !add.label.trim()}>Add</button>
+      </form>
+      <p className="muted small mt-sm">The icon is any emoji; leave it empty for 🏷️.</p>
+      {del && <Confirm title={`Remove “${del.label}”?`} message={`${del.count} ${del.count === 1 ? 'expense moves' : 'expenses move'} to General. The category is gone for every group.`} onCancel={() => setDel(null)} onConfirm={() => { const c = del; setDel(null); run(() => api.del(`${V1}/categories/${c.id}`), 'Category removed') }} />}
     </Card>
   )
 }

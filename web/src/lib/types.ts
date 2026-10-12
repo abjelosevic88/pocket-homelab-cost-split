@@ -2,7 +2,7 @@ export interface User { id: number; email: string; name: string; role: 'admin' |
 export interface APIToken { id: number; name: string; prefix: string; last_used_at: string | null; created_at: string }
 
 export interface Currency { code: string; name: string; decimals: number }
-export interface Category { ID: string; Label: string; Icon: string }
+export interface Category { id: string; label: string; icon: string; builtin: boolean; sort_order: number; count: number }
 
 export interface Member { id: number; group_id: number; user_id: number | null; name: string; created_at: string }
 
@@ -94,6 +94,10 @@ export interface Settings {
   fx_auto: boolean
   fx_provider: string
   fx_enabled: boolean
+  date_format: DateFormat
+  time_format: TimeFormat
 }
+export type DateFormat = 'auto' | 'dmy-dot' | 'dmy-slash' | 'mdy-slash' | 'ymd' | 'dmmmy' | 'mmmdy'
+export type TimeFormat = 'auto' | '24h' | '12h'
 
 export interface FxAnswer { from: string; to: string; date: string; rate: number; source: string; example: string }

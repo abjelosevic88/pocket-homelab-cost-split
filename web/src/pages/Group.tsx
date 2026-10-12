@@ -55,13 +55,13 @@ function Expenses({ g }: { g: GroupT }) {
     }
     return out
   }, [data])
-  const icon = (c: string) => categories.find(x => x.ID === c)?.Icon || '🧾'
+  const icon = (c: string) => categories.find(x => x.id === c)?.icon || '🧾'
   return (
     <>
       <div className="toolbar">
         <div className="search"><span className="ico">⌕</span><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search expenses…" /></div>
         <Select value={member} onChange={setMember} placeholder="Everyone" clearLabel="Everyone" options={g.members.map(m => ({ value: String(m.id), label: m.name }))} ariaLabel="Filter by member" />
-        <Select value={cat} onChange={setCat} placeholder="All categories" clearLabel="All categories" options={categories.map(c => ({ value: c.ID, label: `${c.Icon} ${c.Label}` }))} ariaLabel="Filter by category" />
+        <Select value={cat} onChange={setCat} placeholder="All categories" clearLabel="All categories" options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Filter by category" />
       </div>
       {loading && !data ? <Loading /> : !data || data.expenses.length === 0 ? (
         <Empty title={q || member || cat ? 'Nothing matches' : 'No expenses yet'}>{!(q || member || cat) && !g.archived && <>Add the first one with <b>+ Add expense</b>.</>}</Empty>
@@ -220,7 +220,7 @@ function Stats({ g }: { g: GroupT }) {
   const maxMonth = Math.max(1, ...st.months.map(m => m.total))
   const maxCat = Math.max(1, ...st.categories.map(c => c.total))
   const maxMem = Math.max(1, ...st.members.map(m => Math.max(m.paid, m.share)))
-  const cat = (id: string) => categories.find(c => c.ID === id) || { Icon: '🧾', Label: id }
+  const cat = (id: string) => categories.find(c => c.id === id) || { icon: '🧾', label: id }
   const perHead = Math.round(st.total / Math.max(1, g.members.length))
   const mine = st.members.find(m => m.member_id === g.my_member_id)
   return (
@@ -248,7 +248,7 @@ function Stats({ g }: { g: GroupT }) {
           <div className="rating-bars">
             {st.categories.map(c => (
               <div key={c.category} className="rb-row cat">
-                <span className="l">{cat(c.category).Icon} {cat(c.category).Label}</span>
+                <span className="l">{cat(c.category).icon} {cat(c.category).label}</span>
                 <span className="track"><span className="b" style={{ width: `${Math.round((c.total / maxCat) * 100)}%` }} /></span>
                 <span className="n"><Money minor={c.total} code={g.currency} /></span>
               </div>

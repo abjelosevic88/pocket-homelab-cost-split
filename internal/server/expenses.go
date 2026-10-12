@@ -88,7 +88,7 @@ func (s *Server) buildExpense(ctx context.Context, g *store.Group, in expenseInp
 	if in.Category == "" {
 		in.Category = "general"
 	}
-	if !store.ValidCategory(in.Category) {
+	if !s.store.CategoryExists(ctx, in.Category) {
 		return errors.New("unknown category " + in.Category)
 	}
 	if in.SplitMode == "" {
@@ -240,10 +240,6 @@ func (s *Server) expenseSummary(g *store.Group, e *store.Expense) string {
 
 func (s *Server) handleCurrencies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, currency.All())
-}
-
-func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, store.Categories)
 }
 
 // lookupRate answers from the cache, else asks the providers and remembers.

@@ -96,37 +96,36 @@ type Activity struct {
 type Settings struct {
 	Title           string `json:"title"`
 	DefaultCurrency string `json:"default_currency"`
-	FxAuto          bool   `json:"fx_auto"` // look exchange rates up automatically
+	FxAuto          bool   `json:"fx_auto"`     // look exchange rates up automatically
+	DateFormat      string `json:"date_format"` // auto | dmy-dot | dmy-slash | mdy-slash | ymd | dmmmy | mmmdy
+	TimeFormat      string `json:"time_format"` // auto | 24h | 12h
 	SetupComplete   bool   `json:"setup_complete"`
 }
 
-// Categories an expense can have. Fixed list, like Spliit's: enough to see
-// where the money went, not a taxonomy to maintain.
-var Categories = []struct {
-	ID, Label, Icon string
-}{
-	{"general", "General", "🧾"},
-	{"groceries", "Groceries", "🛒"},
-	{"restaurant", "Restaurants & cafés", "🍽️"},
-	{"drinks", "Drinks & nightlife", "🍻"},
-	{"transport", "Transport", "🚆"},
-	{"fuel", "Fuel & parking", "⛽"},
-	{"accommodation", "Accommodation", "🏨"},
-	{"entertainment", "Entertainment", "🎟️"},
-	{"shopping", "Shopping", "🛍️"},
-	{"health", "Health", "💊"},
-	{"utilities", "Rent & utilities", "🏠"},
-	{"gifts", "Gifts", "🎁"},
-	{"travel", "Flights & travel", "✈️"},
-	{"other", "Other", "📦"},
-}
+// Date and time formats the UI can use ("auto" = the browser's locale).
+var DateFormats = []string{"auto", "dmy-dot", "dmy-slash", "mdy-slash", "ymd", "dmmmy", "mmmdy"}
+var TimeFormats = []string{"auto", "24h", "12h"}
 
-// ValidCategory reports whether id is a known category.
-func ValidCategory(id string) bool {
-	for _, c := range Categories {
-		if c.ID == id {
+func oneOf(v string, list []string) bool {
+	for _, x := range list {
+		if x == v {
 			return true
 		}
 	}
 	return false
+}
+
+// ValidDateFormat / ValidTimeFormat report whether v is a known format id.
+func ValidDateFormat(v string) bool { return oneOf(v, DateFormats) }
+func ValidTimeFormat(v string) bool { return oneOf(v, TimeFormats) }
+
+// Category is what an expense is for. Built-in ones come with the app; anyone
+// can add more. The id is a slug and is what expenses store.
+type Category struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Icon      string `json:"icon"`
+	Builtin   bool   `json:"builtin"`
+	SortOrder int    `json:"sort_order"`
+	Count     int    `json:"count"` // expenses using it
 }

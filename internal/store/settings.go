@@ -7,7 +7,7 @@ const DefaultTitle = "Pocket Split"
 
 // GetSettings loads all settings with defaults applied.
 func (s *Store) GetSettings(ctx context.Context) (Settings, error) {
-	st := Settings{Title: DefaultTitle, DefaultCurrency: "EUR", FxAuto: true}
+	st := Settings{Title: DefaultTitle, DefaultCurrency: "EUR", FxAuto: true, DateFormat: "auto", TimeFormat: "auto"}
 	rows, err := s.DB.QueryContext(ctx, `SELECT key, value FROM settings`)
 	if err != nil {
 		return st, err
@@ -29,6 +29,14 @@ func (s *Store) GetSettings(ctx context.Context) (Settings, error) {
 			}
 		case "fx_auto":
 			st.FxAuto = v != "0"
+		case "date_format":
+			if ValidDateFormat(v) {
+				st.DateFormat = v
+			}
+		case "time_format":
+			if ValidTimeFormat(v) {
+				st.TimeFormat = v
+			}
 		case "setup_complete":
 			st.SetupComplete = v == "1"
 		}
@@ -43,6 +51,8 @@ func (s *Store) SaveSettings(ctx context.Context, st Settings) error {
 		"title":            st.Title,
 		"default_currency": st.DefaultCurrency,
 		"fx_auto":          b[st.FxAuto],
+		"date_format":      st.DateFormat,
+		"time_format":      st.TimeFormat,
 		"setup_complete":   b[st.SetupComplete],
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)

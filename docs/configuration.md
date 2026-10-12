@@ -43,7 +43,8 @@ Rates are cached in the database, one per currency pair and day (today's is refr
 
 ## In-app settings
 
-- **Settings → General:** app title, default currency for new groups, automatic exchange-rate lookup on/off (admins only).
+- **Settings → General:** app title, default currency for new groups, automatic exchange-rate lookup on/off, date and time format (admins only).
+- **Settings → Categories:** the expense categories. Anyone can add one (also by typing a new name in the expense form); admins rename, reorder or remove them.
 - **Group → Settings:** name, description, main currency (locked once the group has expenses), people, archive, delete, export.
 
 ## Forgot your password?

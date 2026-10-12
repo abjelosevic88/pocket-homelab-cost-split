@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { api, V1 } from './api'
 import type { Category, Currency, Settings, User } from './types'
+import { setDateFormats } from './money'
 
 interface AuthStatus { needs_setup: boolean; auth_mode: string; authenticated: boolean; user: User | null; version: string; title: string }
 
@@ -33,6 +34,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('ps-theme', theme) }, [theme])
   useEffect(() => { if (settings?.title) document.title = settings.title }, [settings?.title])
+  useEffect(() => { if (settings) setDateFormats(settings.date_format || 'auto', settings.time_format || 'auto') }, [settings?.date_format, settings?.time_format]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadMeta = useCallback(async () => {
     const [u, c, k] = await Promise.all([api.get<User[]>(`${V1}/users`), api.get<Currency[]>(`${V1}/currencies`), api.get<Category[]>(`${V1}/categories`)])

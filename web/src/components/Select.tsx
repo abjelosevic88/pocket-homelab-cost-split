@@ -36,7 +36,8 @@ export function Select({ value, onChange, options, placeholder = 'Choose…', on
     const s = q.trim().toLowerCase()
     return s ? options.filter(o => o.label.toLowerCase().includes(s) || (o.hint || '').toLowerCase().includes(s)) : options
   }, [q, options])
-  const exact = filtered.some(o => o.label.toLowerCase() === q.trim().toLowerCase())
+  const norm = (l: string) => l.replace(/^[^\p{L}\p{N}]+/u, '').trim().toLowerCase()
+  const exact = filtered.some(o => norm(o.label) === q.trim().toLowerCase())
   const canCreate = Boolean(onCreate) && q.trim() !== '' && !exact
   const rows: { kind: 'opt' | 'create' | 'clear'; opt?: SelectOption }[] = [
     ...(clearLabel && value && !q ? [{ kind: 'clear' as const }] : []),

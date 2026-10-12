@@ -29,6 +29,7 @@ func (s *Server) publicSettings(st store.Settings) map[string]any {
 	return map[string]any{
 		"title": st.Title, "default_currency": st.DefaultCurrency, "fx_auto": st.FxAuto,
 		"fx_provider": s.cfg.FXProvider, "fx_enabled": s.fx.Enabled() && st.FxAuto,
+		"date_format": st.DateFormat, "time_format": st.TimeFormat,
 		"setup_complete": st.SetupComplete,
 	}
 }
@@ -54,6 +55,12 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if !currency.Valid(in.DefaultCurrency) {
 		writeErr(w, http.StatusBadRequest, "unknown currency "+in.DefaultCurrency)
 		return
+	}
+	if !store.ValidDateFormat(in.DateFormat) {
+		in.DateFormat = "auto"
+	}
+	if !store.ValidTimeFormat(in.TimeFormat) {
+		in.TimeFormat = "auto"
 	}
 	in.SetupComplete = cur.SetupComplete
 	if err := s.store.SaveSettings(r.Context(), in); err != nil {
@@ -226,7 +233,7 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 			skipped++
 			continue
 		}
-		if !store.ValidCategory(e.Category) {
+		if !s.store.CategoryExists(r.Context(), e.Category) {
 			e.Category = "general"
 		}
 		ok := true

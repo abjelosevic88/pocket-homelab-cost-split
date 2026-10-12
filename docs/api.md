@@ -49,7 +49,7 @@ Create tokens under **Settings → API tokens**. A token acts as the user who cr
   "fx_rate": 1,                    // 1 unit of currency in group currency; omit to look it up for "date"
   "paid_by": 2,                    // member id
   "date": "2026-10-04",            // default: today
-  "category": "restaurant",        // see GET /categories; default "general"
+  "category": "restaurant",        // a category id, see GET /categories; default "general"
   "notes": "Marko had the lobster",
   "split_mode": "amount",          // even (default) | shares | percent | amount
   "reimbursement": false,          // true = a payment from paid_by to the single sharer
@@ -70,7 +70,9 @@ The answer carries the computed parts: each share's `amount` (expense currency) 
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/currencies` | `[{"code": "EUR", "name": "Euro", "decimals": 2}, …]` — the ISO 4217 list. |
-| `GET` | `/categories` | `[{"ID": "restaurant", "Label": "Restaurants & cafés", "Icon": "🍽️"}, …]` |
+| `GET` | `/categories` | `[{"id": "restaurant", "label": "Restaurants & cafés", "icon": "🍽️", "builtin": true, "sort_order": 3, "count": 12}, …]` |
+| `POST` | `/categories` | `{"label": "Ski passes", "icon": "🎿"}` → the category (id is a slug of the label). A label or slug that already exists returns the existing one. Any user. |
+| `PUT` · `DELETE` | `/categories/{id}` | Admin. `{"label", "icon", "sort_order"}` / remove (its expenses move to `general`, which cannot be removed). |
 | `GET` | `/fx?from=USD&to=EUR&date=2026-10-01` | `{"rate": 0.9218, "source": "frankfurter", "date", "example": "92.18 EUR"}`. Cached per pair and day. `502` when no provider knows the pair (or lookups are off). |
 
 ## Home & activity
@@ -130,7 +132,7 @@ A [Homepage](https://gethomepage.dev) `customapi` widget:
 | `POST` | `/auth/setup` · `/auth/login` · `/auth/logout` | `{"email", "password", "name"}` / `{"email", "password"}` / – |
 | `GET` · `PUT` | `/auth/me` | Profile; `PUT {"name", "email", "current_password", "new_password"}`. |
 | `GET` · `POST` · `PUT` · `DELETE` | `/users`, `/users/{id}` | Admin. `{"email", "name", "password", "role": "admin|member"}`. |
-| `GET` · `PUT` | `/settings` | `{"title", "default_currency", "fx_auto"}` (admin to change). |
+| `GET` · `PUT` | `/settings` | `{"title", "default_currency", "fx_auto", "date_format", "time_format"}` (admin to change). Date formats: `auto`, `dmy-dot` (31.12.2026), `dmy-slash`, `mdy-slash`, `ymd`, `dmmmy` (31 Dec 2026), `mmmdy`; time: `auto`, `24h`, `12h`. |
 | `GET` | `/settings/system` | Version, runtime, paths, row counts. |
 | `GET` · `POST` · `DELETE` | `/tokens`, `/tokens/{id}` | `POST {"name"}` → `{"token": "ps_…"}` (shown once). |
 | `GET` | `/backup` | A consistent SQLite copy as a download. |

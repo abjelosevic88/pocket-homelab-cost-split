@@ -255,6 +255,9 @@ a.stat:hover { border-color: var(--accent); text-decoration: none; }
 .pick-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; cursor: pointer; }
 .pick-row:hover { border-color: var(--accent); background: var(--surface-2); }
 
+.cat-table input { padding: 5px 8px; }
+.cat-table input:disabled { border-color: transparent; background: transparent; color: var(--text); opacity: 1; }
+
 /* ---- money ---- */
 .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .money-input { font-variant-numeric: tabular-nums; text-align: right; }
