@@ -380,14 +380,24 @@ type Dashboard struct {
 
 // GroupLine is one group on the home page.
 type GroupLine struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Currency string `json:"currency"`
-	Balance  int64  `json:"balance"`
-	Members  int    `json:"members"`
-	Expenses int    `json:"expenses"`
-	Total    int64  `json:"total"`
-	LastDate string `json:"last_date"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Currency    string `json:"currency"`
+	Balance     int64  `json:"balance"`
+	Members     int    `json:"members"`
+	Expenses    int    `json:"expenses"`
+	Total       int64  `json:"total"`
+	LastDate    string `json:"last_date"`
+	Settlements []Who  `json:"settlements"` // who owes whom, the viewer's own first
+}
+
+// Who is one settlement payment with names: "Marko owes you 10.00".
+type Who struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Amount int64  `json:"amount"`
+	FromMe bool   `json:"from_me"`
+	ToMe   bool   `json:"to_me"`
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -416,7 +426,22 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			p.YouAreOwed += g.MyBalance
 		}
 		p.Net += g.MyBalance
-		d.GroupLines = append(d.GroupLines, GroupLine{ID: g.ID, Name: g.Name, Currency: g.Currency, Balance: g.MyBalance, Members: len(g.Members), Expenses: g.ExpenseCount, Total: g.Total, LastDate: g.LastActivity})
+		line := GroupLine{ID: g.ID, Name: g.Name, Currency: g.Currency, Balance: g.MyBalance, Members: len(g.Members), Expenses: g.ExpenseCount, Total: g.Total, LastDate: g.LastActivity, Settlements: []Who{}}
+		if bals, err := s.store.Balances(r.Context(), g.ID); err == nil {
+			names := map[int64]string{}
+			for _, m := range g.Members {
+				names[m.ID] = m.Name
+			}
+			for _, t := range split.Settle(bals) {
+				w := Who{From: names[t.From], To: names[t.To], Amount: t.Amount, FromMe: t.From == g.MyMemberID, ToMe: t.To == g.MyMemberID}
+				if w.FromMe || w.ToMe {
+					line.Settlements = append([]Who{w}, line.Settlements...)
+				} else {
+					line.Settlements = append(line.Settlements, w)
+				}
+			}
+		}
+		d.GroupLines = append(d.GroupLines, line)
 	}
 	for _, p := range pos {
 		d.Positions = append(d.Positions, *p)

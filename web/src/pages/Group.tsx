@@ -196,10 +196,9 @@ function PayModal({ g, initial, onClose, onSaved }: { g: GroupT; initial: { from
           <Field group label="From"><Select value={from} onChange={setFrom} options={opts} /></Field>
           <Field group label="To"><Select value={to} onChange={setTo} options={opts} /></Field>
         </div>
-        <div className="two-col tight">
-          <Field label="Amount"><MoneyInputLazy value={amount} code={currency} onChange={setAmount} /></Field>
-          <Field group label="Currency" help={currency !== g.currency ? `Converted to ${g.currency} at the day's rate.` : undefined}><CurrencySelect value={currency} onChange={setCurrency} /></Field>
-        </div>
+        <Field group label="Amount" help={currency !== g.currency ? `Converted to ${g.currency} at the day's rate.` : undefined}>
+          <div className="amount-field"><CurrencySelect value={currency} onChange={setCurrency} /><MoneyInputLazy value={amount} code={currency} onChange={setAmount} autoFocus /></div>
+        </Field>
         <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} max={todayISO()} /></Field>
         <Field label="Note"><input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Cash, bank transfer…" /></Field>
         <div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button></div>

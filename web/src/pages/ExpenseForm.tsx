@@ -141,10 +141,12 @@ export default function ExpenseForm() {
           <div className="grid" style={{ gap: 14 }}>
             <label className="row"><input type="checkbox" checked={reimb} onChange={e => toggleReimb(e.target.checked)} style={{ width: 'auto' }} /> This is a payment between two people (a reimbursement), not a shared cost</label>
             <Field label="Title"><input value={title} onChange={e => setTitle(e.target.value)} placeholder={reimb ? 'Reimbursement' : 'Dinner, taxi, groceries…'} autoFocus={!editing} required={!reimb} maxLength={120} /></Field>
-            <div className="amount-row">
-              <Field label="Amount"><MoneyInput value={amount} code={currency} onChange={setAmount} className="lg" ariaLabel="Amount" /></Field>
-              <Field group label="Currency" help={foreign ? undefined : `Group currency: ${g.currency}`}><CurrencySelect value={currency} onChange={c => { rateTouched.current = false; setCurrency(c) }} /></Field>
-            </div>
+            <Field group label="Amount" help={foreign ? undefined : 'Paid in another currency? Pick it on the left; it is converted at the day\u2019s rate.'}>
+              <div className="amount-field">
+                <CurrencySelect value={currency} onChange={c => { rateTouched.current = false; setCurrency(c) }} />
+                <MoneyInput value={amount} code={currency} onChange={setAmount} ariaLabel="Amount" />
+              </div>
+            </Field>
             {foreign && (
               <div className="fx-box">
                 <Field label={`Exchange rate · 1 ${currency} =`} help={rateBusy ? 'Looking the rate up…' : rateInfo?.source ? `From ${rateInfo.source}${rateInfo.date !== date ? ` for ${rateInfo.date}` : ''}. Change it if your bank charged differently.` : settings?.fx_enabled ? 'No rate found online — enter it by hand.' : 'Automatic lookups are off (Settings) — enter the rate by hand.'}>

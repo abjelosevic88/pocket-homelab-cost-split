@@ -31,7 +31,7 @@ export default function Home() {
           {d.group_lines.length === 0 ? <Empty title="Nothing shared yet"><Link to="/groups?new=1">Create your first group</Link>.</Empty> : (
             <ul className="mini-list">
               {d.group_lines.map(g => (
-                <li key={g.id}>
+                <li key={g.id} className="group-line">
                   <Link to={`/groups/${g.id}`} className="row grow">
                     <span className="grow">
                       <b>{g.name}</b>
@@ -39,6 +39,15 @@ export default function Home() {
                     </span>
                     <span className="right"><Money minor={g.balance} code={g.currency} sign /><div className="muted small">{g.balance > 0 ? 'you get back' : g.balance < 0 ? 'you owe' : 'settled'}</div></span>
                   </Link>
+                  {g.settlements.length > 0 && (
+                    <ul className="who-owes">
+                      {g.settlements.map((s, i) => (
+                        <li key={i} className={s.from_me ? 'bad' : s.to_me ? 'ok' : 'muted'}>
+                          {s.from_me ? 'You owe ' : <><b>{s.from}</b> owes </>}{s.to_me ? 'you' : <b>{s.to}</b>} <Money minor={s.amount} code={g.currency} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ul>

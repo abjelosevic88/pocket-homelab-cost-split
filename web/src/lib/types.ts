@@ -85,7 +85,7 @@ export interface Dashboard {
   net_text: string
   spent_this_month: { currency: string; total: number; count: number }[]
   spent_text: string
-  group_lines: { id: number; name: string; currency: string; balance: number; members: number; expenses: number; total: number; last_date: string }[]
+  group_lines: { id: number; name: string; currency: string; balance: number; members: number; expenses: number; total: number; last_date: string; settlements: { from: string; to: string; amount: number; from_me: boolean; to_me: boolean }[] }[]
 }
 
 export interface Settings {
