@@ -263,6 +263,9 @@ a.stat:hover { border-color: var(--accent); text-decoration: none; }
 .report-filters .sel { max-width: 360px; }
 .report-filters input[type="date"] { width: auto; }
 .report-table td { vertical-align: top; }
+.debt-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.debt-list li { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 6px; font-size: 15px; }
+.debt-list .amt { color: var(--accent-hover); font-size: 16px; }
 
 /* ---- money ---- */
 .money { font-variant-numeric: tabular-nums; white-space: nowrap; }

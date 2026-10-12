@@ -36,11 +36,15 @@ func (s *Server) buildReport(r *http.Request) (*report.Report, error) {
 		return nil, err
 	}
 	cats, _ := s.store.ListCategories(r.Context())
+	balances, err := s.store.Balances(r.Context(), g.ID)
+	if err != nil {
+		return nil, err
+	}
 	// The expense list is newest first; a report reads better oldest first.
 	for i, j := 0, len(exps)-1; i < j; i, j = i+1, j-1 {
 		exps[i], exps[j] = exps[j], exps[i]
 	}
-	return report.Build(g, cats, exps, f, displayName(userFrom(r.Context()))), nil
+	return report.Build(g, cats, exps, balances, f, displayName(userFrom(r.Context()))), nil
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {

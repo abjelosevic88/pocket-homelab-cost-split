@@ -13,6 +13,7 @@ import (
 	"github.com/go-pdf/fpdf"
 
 	"github.com/abjelosevic88/pocket-homelab-cost-split/internal/currency"
+	"github.com/abjelosevic88/pocket-homelab-cost-split/internal/split"
 	"github.com/abjelosevic88/pocket-homelab-cost-split/internal/store"
 )
 
@@ -30,23 +31,38 @@ type Filter struct {
 
 // Report is the result.
 type Report struct {
-	Group       GroupInfo        `json:"group"`
-	Filter      Filter           `json:"filter"`
-	FilterText  string           `json:"filter_text"`
-	GeneratedAt string           `json:"generated_at"`
-	GeneratedBy string           `json:"generated_by"`
-	Total       int64            `json:"total"`      // spent, reimbursements excluded
-	Reimbursed  int64            `json:"reimbursed"` // settle-up payments in the selection
-	Count       int              `json:"count"`      // expenses (not reimbursements)
-	PerHead     int64            `json:"per_head"`   // total / people in the selection
-	FirstDate   string           `json:"first_date"`
-	LastDate    string           `json:"last_date"`
-	Members     []MemberRow      `json:"members"`
-	Categories  []CategoryRow    `json:"categories"`
-	Months      []MonthRow       `json:"months"`
-	Expenses    []ExpenseRow     `json:"expenses"`
-	Currencies  []CurrencyRow    `json:"currencies"`
-	MemberNames map[int64]string `json:"-"`
+	Group       GroupInfo     `json:"group"`
+	Filter      Filter        `json:"filter"`
+	FilterText  string        `json:"filter_text"`
+	GeneratedAt string        `json:"generated_at"`
+	GeneratedBy string        `json:"generated_by"`
+	Total       int64         `json:"total"`      // spent, reimbursements excluded
+	Reimbursed  int64         `json:"reimbursed"` // settle-up payments in the selection
+	Count       int           `json:"count"`      // expenses (not reimbursements)
+	PerHead     int64         `json:"per_head"`   // total / people in the selection
+	FirstDate   string        `json:"first_date"`
+	LastDate    string        `json:"last_date"`
+	Members     []MemberRow   `json:"members"`
+	Categories  []CategoryRow `json:"categories"`
+	Months      []MonthRow    `json:"months"`
+	Expenses    []ExpenseRow  `json:"expenses"`
+	Currencies  []CurrencyRow `json:"currencies"`
+	// Settlements are the group's real open debts as of now (every expense and
+	// payment, regardless of the filter). SelectionSettlements is the same
+	// arithmetic over the selected expenses only; nil when nothing is filtered.
+	Settlements          []Debt           `json:"settlements"`
+	SelectionSettlements []Debt           `json:"selection_settlements"`
+	Filtered             bool             `json:"filtered"`
+	MemberNames          map[int64]string `json:"-"`
+}
+
+// Debt is "From owes To Amount".
+type Debt struct {
+	From     int64  `json:"from"`
+	To       int64  `json:"to"`
+	FromName string `json:"from_name"`
+	ToName   string `json:"to_name"`
+	Amount   int64  `json:"amount"`
 }
 
 // GroupInfo is the bit of the group the report needs.
@@ -106,10 +122,12 @@ type ExpenseRow struct {
 	Notes         string `json:"notes"`
 }
 
-// Build aggregates the already-filtered expenses.
-func Build(g *store.Group, cats []store.Category, exps []*store.Expense, f Filter, by string) *Report {
+// Build aggregates the already-filtered expenses. balances are the group's
+// current balances over everything (for the "who owes whom" section).
+func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balances []split.Balance, f Filter, by string) *Report {
 	r := &Report{Group: GroupInfo{ID: g.ID, Name: g.Name, Currency: g.Currency}, Filter: f, GeneratedAt: time.Now().Format("2006-01-02 15:04"), GeneratedBy: by,
-		Members: []MemberRow{}, Categories: []CategoryRow{}, Months: []MonthRow{}, Expenses: []ExpenseRow{}, Currencies: []CurrencyRow{}, MemberNames: map[int64]string{}}
+		Members: []MemberRow{}, Categories: []CategoryRow{}, Months: []MonthRow{}, Expenses: []ExpenseRow{}, Currencies: []CurrencyRow{}, Settlements: []Debt{}, MemberNames: map[int64]string{}}
+	r.Filtered = f.From != "" || f.To != "" || len(f.Categories) > 0 || f.MemberID != 0
 	catLabel, catIcon := map[string]string{}, map[string]string{}
 	for _, c := range cats {
 		catLabel[c.ID], catIcon[c.ID] = c.Label, c.Icon
@@ -216,7 +234,23 @@ func Build(g *store.Group, cats []store.Category, exps []*store.Expense, f Filte
 		r.PerHead = r.Total / int64(n)
 	}
 	r.FilterText = describe(f, r, catLabel)
+	r.Settlements = r.debts(split.Settle(balances))
+	if r.Filtered {
+		sel := make([]split.Balance, 0, len(r.Members))
+		for _, m := range r.Members {
+			sel = append(sel, split.Balance{MemberID: m.MemberID, Balance: m.Net})
+		}
+		r.SelectionSettlements = r.debts(split.Settle(sel))
+	}
 	return r
+}
+
+func (r *Report) debts(ts []split.Transfer) []Debt {
+	out := make([]Debt, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, Debt{From: t.From, To: t.To, FromName: r.MemberNames[t.From], ToName: r.MemberNames[t.To], Amount: t.Amount})
+	}
+	return out
 }
 
 func describe(f Filter, r *Report, catLabel map[string]string) string {
@@ -374,6 +408,54 @@ func PDF(r *Report, appTitle string) ([]byte, error) {
 		}
 		pdf.SetFont("dv", "", 8.5)
 		pdf.Ln(4)
+	}
+
+	// Who owes whom: the point of the whole thing, so it goes first and big.
+	owes := func(title, note string, debts []Debt) {
+		header(title)
+		pdf.SetFont("dv", "", 8)
+		pdf.SetTextColor(107, 114, 128)
+		pdf.MultiCell(0, 4.2, note, "", "L", false)
+		pdf.Ln(1.5)
+		if len(debts) == 0 {
+			pdf.SetFont("dv", "B", 10)
+			pdf.SetTextColor(21, 128, 61)
+			pdf.CellFormat(0, 8, "All settled — nobody owes anybody.", "", 1, "L", false, 0, "")
+			pdf.SetTextColor(17, 24, 39)
+			pdf.Ln(3)
+			return
+		}
+		for _, d := range debts {
+			y := pdf.GetY()
+			pdf.SetFillColor(230, 247, 244)
+			pdf.Rect(14, y, usable, 10, "F")
+			pdf.SetFillColor(accent[0], accent[1], accent[2])
+			pdf.Rect(14, y, 1.5, 10, "F")
+			pdf.SetXY(18, y+1)
+			pdf.SetFont("dv", "B", 11)
+			pdf.SetTextColor(17, 24, 39)
+			pdf.CellFormat(usable-70, 8, d.FromName, "", 0, "L", false, 0, "")
+			pdf.SetXY(18, y+1)
+			pdf.CellFormat(usable-70, 8, "", "", 0, "L", false, 0, "")
+			pdf.SetXY(18+pdf.GetStringWidth(d.FromName)+2, y+1)
+			pdf.SetFont("dv", "", 10)
+			pdf.SetTextColor(107, 114, 128)
+			pdf.CellFormat(12, 8, "owes", "", 0, "L", false, 0, "")
+			pdf.SetFont("dv", "B", 11)
+			pdf.SetTextColor(17, 24, 39)
+			pdf.CellFormat(usable-100, 8, d.ToName, "", 0, "L", false, 0, "")
+			pdf.SetXY(14+usable-66, y+1)
+			pdf.SetFont("dv", "B", 12)
+			pdf.SetTextColor(accent[0], accent[1], accent[2])
+			pdf.CellFormat(62, 8, Money(d.Amount, cur), "", 0, "R", false, 0, "")
+			pdf.SetTextColor(17, 24, 39)
+			pdf.SetXY(14, y+12)
+		}
+		pdf.Ln(3)
+	}
+	owes("Who owes whom", fmt.Sprintf("The group's open debts as of %s, counting every expense and every payment made so far (not just the selection below). Paying these amounts settles the group with the fewest transfers.", r.GeneratedAt), r.Settlements)
+	if r.Filtered {
+		owes("Within this selection only", "The same arithmetic over just the expenses in this report: who paid more than their part of these particular expenses, and who paid less.", r.SelectionSettlements)
 	}
 
 	// Per person

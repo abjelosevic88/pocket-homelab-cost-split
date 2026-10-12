@@ -19,7 +19,11 @@ interface Report {
   months: { month: string; total: number; count: number }[]
   expenses: { id: number; date: string; title: string; category: string; category_label: string; paid_by: string; amount: number; currency: string; amount_group: number; reimbursement: boolean; for: string; notes: string }[]
   currencies: { currency: string; total: number; count: number }[]
+  settlements: Debt[]
+  selection_settlements: Debt[] | null
+  filtered: boolean
 }
+interface Debt { from: number; to: number; from_name: string; to_name: string; amount: number }
 
 type Preset = 'month' | 'last' | 'year' | 'all' | 'custom'
 
@@ -104,9 +108,21 @@ export default function Reports() {
             <div className="stat"><div className="n">{rep.categories.length}</div><div className="l">{rep.categories.length === 1 ? 'Category' : 'Categories'}</div></div>
             <div className="stat"><div className="n"><Money minor={rep.reimbursed} code={cur} /></div><div className="l">Settle-up payments{!payments && ' (not shown)'}</div></div>
           </div>
+          <div className={rep.filtered ? 'two-col' : ''}>
+            <Card title="Who owes whom" className="owes-card">
+              <p className="muted small">The group's open debts as of today, counting every expense and payment so far, not just this selection. Paying these settles the group with the fewest transfers.</p>
+              <DebtList debts={rep.settlements} cur={cur} />
+            </Card>
+            {rep.filtered && (
+              <Card title="Within this selection only" className="owes-card">
+                <p className="muted small">The same arithmetic over just the expenses in this report: who paid more than their part of these particular expenses, and who paid less.</p>
+                <DebtList debts={rep.selection_settlements || []} cur={cur} />
+              </Card>
+            )}
+          </div>
           {rep.count === 0 && rep.expenses.length === 0 ? <Empty title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
             <>
-              <div className="two-col">
+              <div className="two-col mt">
                 <Card title="Per person" flush>
                   <table className="table compact">
                     <thead><tr><th>Person</th><th className="right">Paid for</th><th className="right">Paid</th><th className="right">Share</th><th className="right">Net</th></tr></thead>
@@ -163,5 +179,22 @@ export default function Reports() {
         </>
       )}
     </>
+  )
+}
+
+function DebtList({ debts, cur }: { debts: Debt[]; cur: string }) {
+  if (debts.length === 0) return <p className="ok"><b>All settled — nobody owes anybody.</b></p>
+  return (
+    <ul className="debt-list">
+      {debts.map((d, i) => (
+        <li key={i}>
+          <MemberAvatar member={{ id: d.from, name: d.from_name }} /><b>{d.from_name}</b>
+          <span className="muted">owes</span>
+          <MemberAvatar member={{ id: d.to, name: d.to_name }} /><b>{d.to_name}</b>
+          <span className="spacer" />
+          <b className="amt"><Money minor={d.amount} code={cur} /></b>
+        </li>
+      ))}
+    </ul>
   )
 }
