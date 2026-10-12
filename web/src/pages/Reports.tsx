@@ -49,6 +49,7 @@ export default function Reports() {
   const [cats, setCats] = useState<string[]>([])
   const [member, setMember] = useState('')
   const [payments, setPayments] = useState(false)
+  const [debts, setDebts] = useState(false)
 
   useEffect(() => { if (groups && !groupId && groups.length) setGroupId(String(groups[0].id)) }, [groups, groupId])
   useEffect(() => { if (groupId) { params.set('group', groupId); setParams(params, { replace: true }) } }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -63,8 +64,9 @@ export default function Reports() {
     if (cats.length) q.set('categories', cats.join(','))
     if (member) q.set('member', member)
     if (payments) q.set('reimbursements', 'include')
+    if (debts) q.set('debts', '1')
     return q.toString()
-  }, [from, to, cats, member, payments])
+  }, [from, to, cats, member, payments, debts])
   const { data: rep, loading, error } = useAsync(() => groupId ? api.get<Report>(`${V1}/groups/${groupId}/report?${query}`) : Promise.resolve(null), [groupId, query])
 
   if (!groups) return <Loading />
@@ -95,6 +97,7 @@ export default function Reports() {
             </div>
           </Field>
           <label className="row"><input type="checkbox" checked={payments} onChange={e => setPayments(e.target.checked)} style={{ width: 'auto' }} /> Include settle-up payments (they are never counted as spending)</label>
+          <label className="row"><input type="checkbox" checked={debts} onChange={e => setDebts(e.target.checked)} style={{ width: 'auto' }} /> Show who owes whom (the group's open debts as of today, and within the selection)</label>
         </div>
       </Card>
 
@@ -108,7 +111,7 @@ export default function Reports() {
             <div className="stat"><div className="n">{rep.categories.length}</div><div className="l">{rep.categories.length === 1 ? 'Category' : 'Categories'}</div></div>
             <div className="stat"><div className="n"><Money minor={rep.reimbursed} code={cur} /></div><div className="l">Settle-up payments{!payments && ' (not shown)'}</div></div>
           </div>
-          <div className={rep.filtered ? 'two-col' : ''}>
+          {debts && <div className={rep.filtered ? 'two-col' : ''}>
             <Card title="Who owes whom" className="owes-card">
               <p className="muted small">The group's open debts as of today, counting every expense and payment so far, not just this selection. Paying these settles the group with the fewest transfers.</p>
               <DebtList debts={rep.settlements} cur={cur} />
@@ -119,10 +122,10 @@ export default function Reports() {
                 <DebtList debts={rep.selection_settlements || []} cur={cur} />
               </Card>
             )}
-          </div>
+          </div>}
           {rep.count === 0 && rep.expenses.length === 0 ? <Empty title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
             <>
-              <div className="two-col mt">
+              <div className={`two-col ${debts ? 'mt' : ''}`}>
                 <Card title="Per person" flush>
                   <table className="table compact">
                     <thead><tr><th>Person</th><th className="right">Paid for</th><th className="right">Paid</th><th className="right">Share</th><th className="right">Net</th></tr></thead>

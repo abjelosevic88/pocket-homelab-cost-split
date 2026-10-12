@@ -31,6 +31,7 @@ func (s *Server) buildReport(r *http.Request) (*report.Report, error) {
 	if q.Get("reimbursements") == "include" {
 		f.Reimbursements = "include"
 	}
+	f.Debts = queryBool(r, "debts")
 	exps, _, err := s.store.ListExpenses(r.Context(), store.ExpenseFilter{GroupID: g.ID, From: f.From, To: f.To, Categories: f.Categories, MemberID: f.MemberID, Reimbursements: map[string]string{"include": "", "exclude": "exclude"}[f.Reimbursements]})
 	if err != nil {
 		return nil, err

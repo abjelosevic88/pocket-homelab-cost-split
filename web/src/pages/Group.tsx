@@ -86,10 +86,10 @@ function ExpenseRow({ e, g, icon }: { e: Expense; g: GroupT; icon: string }) {
     const to = e.shares[0]?.member_id
     return (
       <Link to={`/groups/${g.id}/expenses/${e.id}`} className="expense-row reimb">
-        <span className="ico">💸</span>
+        <span className="ico" title={e.category}>{e.category !== 'general' ? icon : '💸'}</span>
         <span className="info">
           <span className="nm">{memberName(g.members, e.paid_by)} paid {memberName(g.members, to)}</span>
-          <span className="meta">{fmtDate(e.date, false)}{e.notes && ` · ${e.notes}`}</span>
+          <span className="meta">{fmtDate(e.date, false)} · payment{e.title && e.title !== 'Reimbursement' ? ` · ${e.title}` : ''}{e.notes && ` · ${e.notes}`}</span>
         </span>
         <span className="side">
           <b><Money minor={e.amount} code={e.currency} /></b>
@@ -178,14 +178,16 @@ function PayModal({ g, initial, onClose, onSaved }: { g: GroupT; initial: { from
   const [amount, setAmount] = useState<number | null>(initial.amount || null)
   const [date, setDate] = useState(todayISO())
   const [notes, setNotes] = useState('')
+  const [category, setCategory] = useState('general')
   const [busy, setBusy] = useState(false)
+  const { categories } = useApp()
   const opts = g.members.map(m => ({ value: String(m.id), label: m.name }))
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!amount || from === to) { toast(from === to ? 'Pick two different people' : 'Enter the amount', 'err'); return }
     setBusy(true)
     try {
-      await api.post(`${V1}/groups/${g.id}/expenses`, { title: 'Reimbursement', amount, currency, paid_by: Number(from), date, category: 'general', notes, split_mode: 'even', reimbursement: true, shares: [{ member_id: Number(to), share: 1 }] })
+      await api.post(`${V1}/groups/${g.id}/expenses`, { title: 'Reimbursement', amount, currency, paid_by: Number(from), date, category, notes, split_mode: 'even', reimbursement: true, shares: [{ member_id: Number(to), share: 1 }] })
       onSaved()
     } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) }
   }
@@ -199,7 +201,10 @@ function PayModal({ g, initial, onClose, onSaved }: { g: GroupT; initial: { from
         <Field group label="Amount" help={currency !== g.currency ? `Converted to ${g.currency} at the day's rate.` : undefined}>
           <div className="amount-field"><CurrencySelect value={currency} onChange={setCurrency} /><MoneyInputLazy value={amount} code={currency} onChange={setAmount} autoFocus /></div>
         </Field>
-        <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} max={todayISO()} /></Field>
+        <div className="two-col tight">
+          <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} max={todayISO()} /></Field>
+          <Field group label="Category"><Select value={category} onChange={setCategory} options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Category" /></Field>
+        </div>
         <Field label="Note"><input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Cash, bank transfer…" /></Field>
         <div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button></div>
       </form>

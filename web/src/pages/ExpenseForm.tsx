@@ -111,7 +111,7 @@ export default function ExpenseForm() {
   }
   const toggleReimb = (on: boolean) => {
     setReimb(on); setMode('even')
-    if (on) { setTitle(t => t || 'Reimbursement'); setCategory('general'); const other = g.members.find(m => String(m.id) !== paidBy); setRows(rs => rs.map(r => ({ ...r, on: other ? r.member_id === other.id : false, share: null }))) }
+    if (on) { setTitle(t => t || 'Reimbursement'); const other = g.members.find(m => String(m.id) !== paidBy); setRows(rs => rs.map(r => ({ ...r, on: other ? r.member_id === other.id : false, share: null }))) }
     else setRows(rs => rs.map(r => ({ ...r, on: true, share: null })))
   }
   const submit = async (e: React.FormEvent) => {
@@ -160,10 +160,10 @@ export default function ExpenseForm() {
               <Field group label={reimb ? 'Paid by' : 'Who paid'}><Select value={paidBy} onChange={setPaidBy} options={memberOpts} ariaLabel="Paid by" /></Field>
               <Field label="Date"><input type="date" value={date} onChange={e => { setDate(e.target.value); if (!rateTouched.current) setRateInfo(null) }} required /></Field>
             </div>
-            {!reimb && <Field group label="Category" help="Type a name that is not in the list to add it.">
+            <Field group label="Category" help={reimb ? 'What the payment was for, e.g. Rent & utilities. Type a name that is not in the list to add it.' : 'Type a name that is not in the list to add it.'}>
               <Select value={category} onChange={setCategory} options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Category" createLabel="Add category"
                 onCreate={async label => { const c = await api.post<{ id: string }>(`${V1}/categories`, { label }); await reloadMeta(); return c.id }} />
-            </Field>}
+            </Field>
             <Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={reimb ? 'Cash, bank transfer…' : 'Anything worth remembering'} /></Field>
           </div>
         </Card>

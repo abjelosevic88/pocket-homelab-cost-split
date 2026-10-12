@@ -27,6 +27,7 @@ type Filter struct {
 	Categories     []string `json:"categories"`
 	MemberID       int64    `json:"member_id"`
 	Reimbursements string   `json:"reimbursements"` // exclude | include
+	Debts          bool     `json:"debts"`          // show who owes whom
 }
 
 // Report is the result.
@@ -155,8 +156,10 @@ func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balance
 		}
 		row := ExpenseRow{ID: e.ID, Date: e.Date, Title: e.Title, Category: e.Category, CategoryLabel: catLabel[e.Category], PaidBy: r.MemberNames[e.PaidBy], Amount: e.Amount, Currency: e.Currency, AmountGroup: e.AmountGroup, Reimbursement: e.Reimbursement, For: forText, Notes: e.Notes}
 		if e.Reimbursement {
-			row.Title = fmt.Sprintf("%s → %s", r.MemberNames[e.PaidBy], forText)
-			row.CategoryLabel = "Payment"
+			row.Title = fmt.Sprintf("Payment: %s → %s", r.MemberNames[e.PaidBy], forText)
+			if e.Title != "" && e.Title != "Reimbursement" {
+				row.Title += " (" + e.Title + ")"
+			}
 		}
 		r.Expenses = append(r.Expenses, row)
 		if e.Reimbursement {
@@ -453,9 +456,11 @@ func PDF(r *Report, appTitle string) ([]byte, error) {
 		}
 		pdf.Ln(3)
 	}
-	owes("Who owes whom", fmt.Sprintf("The group's open debts as of %s, counting every expense and every payment made so far (not just the selection below). Paying these amounts settles the group with the fewest transfers.", r.GeneratedAt), r.Settlements)
-	if r.Filtered {
-		owes("Within this selection only", "The same arithmetic over just the expenses in this report: who paid more than their part of these particular expenses, and who paid less.", r.SelectionSettlements)
+	if r.Filter.Debts {
+		owes("Who owes whom", fmt.Sprintf("The group's open debts as of %s, counting every expense and every payment made so far (not just the selection below). Paying these amounts settles the group with the fewest transfers.", r.GeneratedAt), r.Settlements)
+		if r.Filtered {
+			owes("Within this selection only", "The same arithmetic over just the expenses in this report: who paid more than their part of these particular expenses, and who paid less.", r.SelectionSettlements)
+		}
 	}
 
 	// Per person
