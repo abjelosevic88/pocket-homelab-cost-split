@@ -16,9 +16,13 @@ type ExpenseFilter struct {
 	Q        string
 	MemberID int64 // paid by or shared by
 	Category string
-	From, To string // dates, inclusive
-	Limit    int
-	Offset   int
+	// Categories limits to any of these ids (used by reports); empty = all.
+	Categories []string
+	// Reimbursements: "exclude" | "only" | "" (both).
+	Reimbursements string
+	From, To       string // dates, inclusive
+	Limit          int
+	Offset         int
 }
 
 const expenseCols = `id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, COALESCE(created_by, 0), created_at, updated_at`
@@ -49,6 +53,20 @@ func (s *Store) ListExpenses(ctx context.Context, f ExpenseFilter) ([]*Expense, 
 	if f.Category != "" {
 		where = append(where, `category = ?`)
 		args = append(args, f.Category)
+	}
+	if len(f.Categories) > 0 {
+		ph := make([]string, len(f.Categories))
+		for i, c := range f.Categories {
+			ph[i] = "?"
+			args = append(args, c)
+		}
+		where = append(where, `category IN (`+strings.Join(ph, ",")+`)`)
+	}
+	switch f.Reimbursements {
+	case "exclude":
+		where = append(where, `reimbursement = 0`)
+	case "only":
+		where = append(where, `reimbursement = 1`)
 	}
 	if f.From != "" {
 		where = append(where, `date >= ?`)

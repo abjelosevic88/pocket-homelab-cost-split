@@ -22,7 +22,7 @@ export default function Group() {
     <>
       <PageHeader title={<span className="row wrap">{g.name}<span className="badge cat">{g.currency}</span>{g.archived && <span className="badge">archived</span>}</span>}
         sub={<span className="row wrap"><MemberStack members={g.members} myId={g.my_member_id} /><span>{g.members.map(m => m.name).join(', ')}</span>{g.description && <span className="muted">· {g.description}</span>}</span>}
-        actions={!g.archived && <button className="btn primary" onClick={() => navigate(`/groups/${g.id}/expenses/new`)}>+ Add expense</button>} />
+        actions={<><Link className="btn" to={`/reports?group=${g.id}`}>Report</Link>{!g.archived && <button className="btn primary" onClick={() => navigate(`/groups/${g.id}/expenses/new`)}>+ Add expense</button>}</>} />
       <Tabs tabs={[{ id: 'expenses', label: `Expenses${g.expense_count ? ` (${g.expense_count})` : ''}` }, { id: 'balances', label: 'Balances' }, { id: 'stats', label: 'Stats' }, { id: 'activity', label: 'Activity' }, { id: 'settings', label: 'Settings' }]} value={t} onChange={x => navigate(`/groups/${g.id}${x === 'expenses' ? '' : '/' + x}`)} />
       <div className="mt">
         {t === 'expenses' && <Expenses g={g} />}

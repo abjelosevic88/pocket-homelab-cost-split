@@ -258,6 +258,12 @@ a.stat:hover { border-color: var(--accent); text-decoration: none; }
 .cat-table input { padding: 5px 8px; }
 .cat-table input:disabled { border-color: transparent; background: transparent; color: var(--text); opacity: 1; }
 
+/* ---- reports ---- */
+.report-filters { display: grid; gap: 14px; }
+.report-filters .sel { max-width: 360px; }
+.report-filters input[type="date"] { width: auto; }
+.report-table td { vertical-align: top; }
+
 /* ---- money ---- */
 .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .money-input { font-variant-numeric: tabular-nums; text-align: right; }

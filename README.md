@@ -57,6 +57,7 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 | **Currencies** | The full ISO 4217 list with correct decimals (¥ has none, BHD has three). Rates from [Frankfurter](https://frankfurter.app) (ECB, historical) with [ExchangeRate-API](https://www.exchangerate-api.com/docs/free) as fallback for the rest (BAM, RSD, …); cached per pair and day; always editable. |
 | **Balances** | Paid minus share per person, in the group currency. Settle-up suggestions with the fewest payments; *Mark as paid* records a reimbursement. |
 | **Stats** | Total, per head, your share, by month, by category, who paid vs whose share, which currencies were used. |
+| **Reports** | Pick a group, a period (this month, last month, this year, all time, custom), categories and a person; see totals, per person, by category, by month and the expense list — and export exactly that as a PDF. |
 | **Home** | What you owe and are owed per currency across all groups, your share this month, recent activity. |
 | **Settings** | App title, default currency, date and time format, editable categories with icons. |
 | **Users** | Built-in login (multi-user, admin/member), or trust your SSO proxy's header, or no login on a trusted LAN. Personal API tokens. |

@@ -10,6 +10,7 @@ import Home from './pages/Home'
 import Groups from './pages/Groups'
 import Group from './pages/Group'
 import ExpenseForm from './pages/ExpenseForm'
+import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 
 function Gate({ children }: { children: React.ReactNode }) {
@@ -33,6 +34,7 @@ function App() {
         <Route path="/groups/:id/expenses/new" element={<ExpenseForm />} />
         <Route path="/groups/:id/expenses/:eid" element={<ExpenseForm />} />
         <Route path="/groups/:id/:tab?" element={<Group />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

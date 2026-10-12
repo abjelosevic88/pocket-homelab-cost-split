@@ -7,6 +7,7 @@ import { Avatar } from './people'
 const nav = [
   { to: '/home', label: 'Home', ico: '◉' },
   { to: '/groups', label: 'Groups', ico: '⧉' },
+  { to: '/reports', label: 'Reports', ico: '▤' },
   { to: '/settings', label: 'Settings', ico: '⚙' },
 ]
 
