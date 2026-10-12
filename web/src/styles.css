@@ -249,6 +249,12 @@ a.stat:hover { border-color: var(--accent); text-decoration: none; }
 .who-owes li { display: block; padding: 1px 0; border: 0; }
 .who-owes li.muted b { font-weight: 600; }
 
+.group-line .row > a:first-child { flex: 1; min-width: 0; }
+.add-inline { flex-shrink: 0; color: var(--accent-hover); }
+.pick-list { display: grid; gap: 6px; }
+.pick-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; cursor: pointer; }
+.pick-row:hover { border-color: var(--accent); background: var(--surface-2); }
+
 /* ---- money ---- */
 .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .money-input { font-variant-numeric: tabular-nums; text-align: right; }

@@ -1,9 +1,10 @@
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import type { Activity, Dashboard } from '../lib/types'
 import { ago, fmtDate } from '../lib/money'
-import { Card, Empty, Loading, PageHeader, useAsync } from '../components/ui'
+import { Card, Empty, Loading, Modal, PageHeader, useAsync } from '../components/ui'
 import { Money } from '../components/Money'
 import { ActivityKind } from './Group'
 
@@ -12,7 +13,13 @@ export default function Home() {
   const navigate = useNavigate()
   const { data: d, loading } = useAsync(() => api.get<Dashboard>(`${V1}/dashboard`), [])
   const { data: act } = useAsync(() => api.get<Activity[]>(`${V1}/activity?limit=12`), [])
+  const [pick, setPick] = useState(false)
   if (loading || !d) return <Loading />
+  const addExpense = () => {
+    if (d.group_lines.length === 1) navigate(`/groups/${d.group_lines[0].id}/expenses/new`)
+    else if (d.group_lines.length === 0) navigate('/groups?new=1')
+    else setPick(true)
+  }
   const hour = new Date().getHours()
   const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const owe = d.positions.filter(p => p.you_owe > 0)
@@ -20,7 +27,19 @@ export default function Home() {
   return (
     <>
       <PageHeader title={`${hello}, ${user?.name?.split(' ')[0] || 'there'}`} sub={d.groups === 0 ? 'No groups yet. Create one for a trip, a flat or a dinner.' : `${d.groups} active ${d.groups === 1 ? 'group' : 'groups'}${d.archived_groups ? `, ${d.archived_groups} archived` : ''}`}
-        actions={<button className="btn primary" onClick={() => navigate('/groups?new=1')}>+ New group</button>} />
+        actions={<><button className="btn" onClick={() => navigate('/groups?new=1')}>+ New group</button><button className="btn primary" onClick={addExpense}>+ Add expense</button></>} />
+      {pick && (
+        <Modal title="Add an expense to…" onClose={() => setPick(false)}>
+          <div className="pick-list">
+            {d.group_lines.map(g => (
+              <button key={g.id} className="pick-row" onClick={() => navigate(`/groups/${g.id}/expenses/new`)}>
+                <span className="grow"><b>{g.name}</b><div className="muted small">{g.members} {g.members === 1 ? 'person' : 'people'} · {g.expenses} {g.expenses === 1 ? 'expense' : 'expenses'}</div></span>
+                <span className="badge cat">{g.currency}</span>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
       <div className="stats">
         <div className="stat"><div className="l">You owe</div><div className="n bad">{owe.length ? owe.map(p => <div key={p.currency}><Money minor={p.you_owe} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
         <div className="stat"><div className="l">You are owed</div><div className="n ok">{owed.length ? owed.map(p => <div key={p.currency}><Money minor={p.you_are_owed} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
@@ -32,6 +51,7 @@ export default function Home() {
             <ul className="mini-list">
               {d.group_lines.map(g => (
                 <li key={g.id} className="group-line">
+                  <div className="row">
                   <Link to={`/groups/${g.id}`} className="row grow">
                     <span className="grow">
                       <b>{g.name}</b>
@@ -39,6 +59,8 @@ export default function Home() {
                     </span>
                     <span className="right"><Money minor={g.balance} code={g.currency} sign /><div className="muted small">{g.balance > 0 ? 'you get back' : g.balance < 0 ? 'you owe' : 'settled'}</div></span>
                   </Link>
+                  <Link className="btn ghost sm add-inline" to={`/groups/${g.id}/expenses/new`} title={`Add an expense to ${g.name}`}>＋ Expense</Link>
+                  </div>
                   {g.settlements.length > 0 && (
                     <ul className="who-owes">
                       {g.settlements.map((s, i) => (
