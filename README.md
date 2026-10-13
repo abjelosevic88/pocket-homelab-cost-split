@@ -151,7 +151,7 @@ Requires Go 1.22+ and Node 20+. Stack: Go + chi + modernc SQLite (no CGO), and R
 
 ## Credits
 
-The feature set follows [Spliit](https://spliit.app) (Sebastien Castiel, MIT), which is the app to use if you want shareable links without accounts. Exchange rates come from [Frankfurter](https://frankfurter.app) (ECB data) and the [ExchangeRate-API open endpoint](https://www.exchangerate-api.com/docs/free). Sibling projects built the same way are [Pocket Habits](https://github.com/abjelosevic88/pocket-homelab-habit-tracker), [Pocket Inventory](https://github.com/abjelosevic88/pocket-homelab-inventory), [Pocket Bookshelf](https://github.com/abjelosevic88/pocket-homelab-bookshelf) and [Pocket Invoicing](https://github.com/abjelosevic88/pocket-homelab-invoicing).
+The feature set follows [Spliit](https://spliit.app) (Sebastien Castiel, MIT), which is the app to use if you want shareable links without accounts. Exchange rates come from [Frankfurter](https://frankfurter.app) (ECB data) and the [ExchangeRate-API open endpoint](https://www.exchangerate-api.com/docs/free). Sibling projects built the same way are [Pocket Habits](https://github.com/abjelosevic88/pocket-homelab-habit-tracker), [Pocket Inventory](https://github.com/abjelosevic88/pocket-homelab-inventory), [Pocket Bookshelf](https://github.com/abjelosevic88/pocket-homelab-bookshelf), [Pocket Invoicing](https://github.com/abjelosevic88/pocket-homelab-invoicing) and [Pocket Subtitles](https://github.com/abjelosevic88/pocket-homelab-subtitles).
 
 ## License
 
