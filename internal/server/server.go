@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/abjelosevic88/pocket-homelab-cost-split/internal/config"
+	"github.com/abjelosevic88/pocket-homelab-cost-split/internal/core"
 	"github.com/abjelosevic88/pocket-homelab-cost-split/internal/fx"
 	"github.com/abjelosevic88/pocket-homelab-cost-split/internal/store"
 )
@@ -36,12 +38,25 @@ type Server struct {
 	started  time.Time
 	requests atomic.Int64
 	errors   atomic.Int64
+
+	core     *core.Client
+	coreMu   sync.Mutex
+	coreOK   bool
+	coreErr  string
+	resolved map[string]resolvedURL
+}
+
+type resolvedURL struct {
+	url string
+	at  time.Time
 }
 
 // New creates a server.
 func New(cfg *config.Config, st *store.Store, log *slog.Logger, webFS fs.FS) *Server {
 	ua := "PocketSplit/" + Version + " (+https://github.com/abjelosevic88/pocket-homelab-cost-split)"
-	return &Server{cfg: cfg, store: st, log: log, webFS: webFS, started: time.Now(), fx: fx.New(cfg.FXProvider, ua, cfg.FXTimeout)}
+	return &Server{cfg: cfg, store: st, log: log, webFS: webFS, started: time.Now(), fx: fx.New(cfg.FXProvider, ua, cfg.FXTimeout),
+		core:     core.New(cfg.CoreURL, core.Options{TokenFile: cfg.DataDir + "/core.token", UserAgent: ua}),
+		resolved: map[string]resolvedURL{}}
 }
 
 // Bootstrap seeds the first admin (if configured) and demo data.
@@ -77,7 +92,102 @@ func (s *Server) Bootstrap(ctx context.Context) error {
 		}
 	}
 	_ = s.store.PurgeSessions(ctx)
+	if s.core.Configured() {
+		go s.coreLoop(ctx)
+	}
 	return nil
+}
+
+// ---- Pocket Core ----
+
+// coreLoop registers with Core on start (retrying until it answers) and
+// re-registers every 30 minutes so version and last-seen stay fresh.
+func (s *Server) coreLoop(ctx context.Context) {
+	wait := 5 * time.Second
+	for {
+		err := s.registerWithCore(ctx)
+		s.coreMu.Lock()
+		s.coreOK, s.coreErr = err == nil, ""
+		if err != nil {
+			s.coreErr = err.Error()
+		}
+		s.coreMu.Unlock()
+		if err != nil {
+			s.log.Warn("pocket core: registration failed, retrying", "err", err, "in", wait.String())
+		} else {
+			wait = 30 * time.Minute
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if err != nil && wait < 5*time.Minute {
+			wait *= 2
+		}
+	}
+}
+
+func (s *Server) registerWithCore(ctx context.Context) error {
+	reg, err := s.core.Register(ctx, s.cfg.CoreRegistrationKey, core.Manifest{
+		Slug: "split", Name: "Pocket Split",
+		Description: "A small self-hosted cost splitter for trips, flats and dinners: who paid what, in any currency, and who owes whom.",
+		Icon:        "/favicon.svg", Version: Version,
+		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "SPLIT",
+		Publishes: []string{"split.expense_created", "split.expense_deleted", "split.settled"},
+	})
+	if err != nil {
+		return err
+	}
+	if reg.Token != "" {
+		s.log.Info("pocket core: registered, app token stored", "core", s.cfg.CoreURL)
+	} else {
+		s.log.Debug("pocket core: re-registered", "core", s.cfg.CoreURL)
+	}
+	return nil
+}
+
+// publish sends an event to Core without blocking the request.
+func (s *Server) publish(topic, subject string, payload map[string]any) {
+	if !s.core.Configured() {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.core.Publish(ctx, topic, subject, payload); err != nil {
+			s.log.Warn("pocket core: publish failed", "topic", topic, "err", err)
+		}
+	}()
+}
+
+// resolveSibling asks Core where a sibling app lives (cached a minute) so the
+// *_URL settings may stay empty on a box with Core.
+func (s *Server) resolveSibling(ctx context.Context, slug string) string {
+	if !s.core.Configured() {
+		return ""
+	}
+	s.coreMu.Lock()
+	if r, ok := s.resolved[slug]; ok && time.Since(r.at) < time.Minute {
+		s.coreMu.Unlock()
+		return r.url
+	}
+	s.coreMu.Unlock()
+	url := ""
+	if res, err := s.core.Resolve(ctx, slug); err == nil {
+		url = res.URL
+	}
+	s.coreMu.Lock()
+	s.resolved[slug] = resolvedURL{url: url, at: time.Now()}
+	s.coreMu.Unlock()
+	return url
+}
+
+// coreStatus summarises the Pocket Core link for the About page.
+func (s *Server) coreStatus() map[string]any {
+	s.coreMu.Lock()
+	defer s.coreMu.Unlock()
+	return map[string]any{"configured": s.core.Configured(), "url": s.cfg.CoreURL, "registered": s.coreOK, "error": s.coreErr}
 }
 
 // Router builds the chi router.

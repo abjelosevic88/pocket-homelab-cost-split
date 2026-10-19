@@ -61,7 +61,7 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 | **Home** | What you owe and are owed per currency across all groups, your share this month, recent activity. |
 | **Settings** | App title, default currency, date and time format, editable categories with icons. |
 | **Users** | Built-in login (multi-user, admin/member), or trust your SSO proxy's header, or no login on a trusted LAN. Personal API tokens. |
-| **Data** | SQLite backup from the UI/CLI/API, group export as JSON (re-importable) or CSV (one column per person), activity log per group, Prometheus `/metrics`. |
+| **Data** | SQLite backup from the UI/CLI/API, group export as JSON (re-importable) or CSV (one column per person), activity log per group, Prometheus `/metrics`. With **Pocket Core** on the box: registers itself, publishes `split.expense_created`, `split.expense_deleted` and `split.settled`, accepts paired-phone tokens. |
 
 ## Run it
 
