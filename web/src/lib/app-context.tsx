@@ -3,7 +3,7 @@ import { api, V1 } from './api'
 import type { Category, Currency, Settings, User } from './types'
 import { setDateFormats } from './money'
 
-interface AuthStatus { needs_setup: boolean; auth_mode: string; authenticated: boolean; user: User | null; version: string; title: string }
+interface AuthStatus { needs_setup: boolean; auth_mode: string; authenticated: boolean; user: User | null; version: string; title: string; oidc?: boolean; oidc_name?: string }
 
 interface AppState {
   status: AuthStatus | null

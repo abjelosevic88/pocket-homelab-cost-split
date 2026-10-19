@@ -8,7 +8,7 @@ All settings are environment variables. Nothing is required.
 |---|---|---|
 | `HOST` | `0.0.0.0` | Listen address. |
 | `PORT` | `8080` | Listen port. |
-| `BASE_URL` | – | Public URL (e.g. `https://split.example.com`). Informational. |
+| `BASE_URL` | – | Public URL (e.g. `https://split.example.com`). Also the base of the OIDC callback and the redirect URI the app asks Pocket Core for. |
 | `DATA_DIR` | `./data` (`/data` in the container) | Database and backups. |
 | `DB_PATH` | `$DATA_DIR/pocket-split.db` | Override the database file. |
 | `TZ` | `UTC` | Timezone for "today" (the default expense date, the month in stats). The container ships `tzdata`. |
@@ -18,6 +18,9 @@ All settings are environment variables. Nothing is required.
 | `METRICS_ENABLED` | `true` | Serve Prometheus metrics on `/metrics` (unauthenticated — restrict at the proxy if exposed). |
 | `CORE_URL` / `CORE_REGISTRATION_KEY` | – | [Pocket Core](https://git.bjelke.org/abjelosevic88/pocket-homelab-core): register on start (the key is needed once; the minted app token lives in `$DATA_DIR/core.token`), publish `split.expense_created` / `split.expense_deleted` / `split.settled`, and accept the tokens Core hands to paired phones. |
 | `CORE_APP_URL` | `BASE_URL` | How Core reaches this app for health checks (e.g. `http://host.docker.internal:8172`). |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | – | Sign in with an OpenID Connect provider (PocketID, Authelia, Authentik, Keycloak…). Needs `BASE_URL`; the callback is `BASE_URL/api/v1/auth/oidc/callback`. On a box with Pocket Core none of these are needed — the app receives its client when it registers. |
+| `OIDC_NAME` | `single sign-on` | Button label: “Sign in with …” (a Core-issued client is labelled “Pocket Core”). |
+| `OIDC_AUTO_CREATE` | `true` | Give an unknown (verified) email a member account instead of refusing it. Always on for a Core-issued client. |
 | `DEMO_DATA` | `false` | Seed a sample trip and a flat share into an *empty* database. |
 
 ## Money
