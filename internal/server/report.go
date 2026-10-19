@@ -36,7 +36,7 @@ func (s *Server) buildReport(r *http.Request) (*report.Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	cats, _ := s.store.ListCategories(r.Context())
+	cats, _ := s.store.ListCategories(r.Context(), userFrom(r.Context()).ID)
 	balances, err := s.store.Balances(r.Context(), g.ID)
 	if err != nil {
 		return nil, err

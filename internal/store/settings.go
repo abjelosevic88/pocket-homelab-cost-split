@@ -68,6 +68,70 @@ func (s *Store) SaveSettings(ctx context.Context, st Settings) error {
 	return tx.Commit()
 }
 
+// personalKeys are the settings each person keeps for themselves.
+var personalKeys = []string{"default_currency", "date_format", "time_format"}
+
+// GetUserSettings is GetSettings with userID's own preferences laid over the
+// box-wide values.
+func (s *Store) GetUserSettings(ctx context.Context, userID int64) (Settings, error) {
+	st, err := s.GetSettings(ctx)
+	if err != nil {
+		return st, err
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT key, value FROM user_settings WHERE user_id = ?`, userID)
+	if err != nil {
+		return st, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return st, err
+		}
+		switch k {
+		case "default_currency":
+			if v != "" {
+				st.DefaultCurrency = v
+			}
+		case "date_format":
+			if ValidDateFormat(v) {
+				st.DateFormat = v
+			}
+		case "time_format":
+			if ValidTimeFormat(v) {
+				st.TimeFormat = v
+			}
+		}
+	}
+	return st, rows.Err()
+}
+
+// SaveUserSettings stores userID's own preferences (the personal keys only).
+func (s *Store) SaveUserSettings(ctx context.Context, userID int64, st Settings) error {
+	kv := map[string]string{"default_currency": st.DefaultCurrency, "date_format": st.DateFormat, "time_format": st.TimeFormat}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, k := range personalKeys {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO user_settings (user_id, key, value) VALUES (?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`, userID, k, kv[k]); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// SaveBoxSettings stores only the box-wide keys (title, rate lookups).
+func (s *Store) SaveBoxSettings(ctx context.Context, title string, fxAuto bool) error {
+	cur, err := s.GetSettings(ctx)
+	if err != nil {
+		return err
+	}
+	cur.Title, cur.FxAuto = title, fxAuto
+	return s.SaveSettings(ctx, cur)
+}
+
 // GetFxRate returns a cached rate for the pair and day, if any.
 func (s *Store) GetFxRate(ctx context.Context, base, quote, date string) (rate float64, source, fetchedAt string, err error) {
 	err = notFound(s.DB.QueryRowContext(ctx, `SELECT rate, source, fetched_at FROM fx_cache WHERE base = ? AND quote = ? AND date = ?`, base, quote, date).Scan(&rate, &source, &fetchedAt))

@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
-	list, err := s.store.ListCategories(r.Context())
+	list, err := s.store.ListCategories(r.Context(), userFrom(r.Context()).ID)
 	if err != nil {
 		s.fail(w, err, "categories")
 		return
@@ -25,7 +25,8 @@ type categoryInput struct {
 }
 
 // handleCreateCategory is open to every signed-in user: the expense form
-// offers "Create …" when a typed category does not exist yet.
+// offers "Create …" when a typed category does not exist yet. The new
+// category is the creator's own.
 func (s *Server) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
 	var in categoryInput
 	if err := decode(r, &in); err != nil {
@@ -40,7 +41,7 @@ func (s *Server) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
 	if in.Icon == "" {
 		in.Icon = "🏷️"
 	}
-	c, err := s.store.CreateCategory(r.Context(), in.Label, in.Icon)
+	c, err := s.store.CreateCategory(r.Context(), userFrom(r.Context()).ID, in.Label, in.Icon)
 	if err != nil {
 		s.fail(w, err, "create category")
 		return
@@ -48,13 +49,26 @@ func (s *Server) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
-func (s *Server) handleUpdateCategory(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
-	c, err := s.store.GetCategory(r.Context(), chi.URLParam(r, "id"))
+// editableCategory loads a category the viewer may change: their own, or a
+// built-in one if they are an admin (the built-in list is box-wide). Someone
+// else's category is 404; a built-in one for a member is 403.
+func (s *Server) editableCategory(w http.ResponseWriter, r *http.Request) *store.Category {
+	u := userFrom(r.Context())
+	c, err := s.store.GetCategory(r.Context(), chi.URLParam(r, "id"), u.ID)
 	if err != nil {
 		s.fail(w, err, "category")
+		return nil
+	}
+	if c.Builtin && u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "only an admin can change the built-in categories")
+		return nil
+	}
+	return c
+}
+
+func (s *Server) handleUpdateCategory(w http.ResponseWriter, r *http.Request) {
+	c := s.editableCategory(w, r)
+	if c == nil {
 		return
 	}
 	var in categoryInput
@@ -79,10 +93,11 @@ func (s *Server) handleUpdateCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteCategory(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	c := s.editableCategory(w, r)
+	if c == nil {
 		return
 	}
-	if err := s.store.DeleteCategory(r.Context(), chi.URLParam(r, "id")); err != nil {
+	if err := s.store.DeleteCategory(r.Context(), c.ID); err != nil {
 		if err == store.ErrNotFound {
 			s.fail(w, err, "category")
 			return

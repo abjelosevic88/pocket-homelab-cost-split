@@ -280,7 +280,6 @@ func (s *Server) Router() http.Handler {
 			r.Post("/tokens", s.handleCreateToken)
 			r.Delete("/tokens/{id}", s.handleDeleteToken)
 
-			r.Get("/backup", s.handleBackup)
 		})
 	})
 

@@ -9,9 +9,7 @@ Everything lives in `DATA_DIR` (`/data` in the container):
 
 ## Making a backup
 
-- **UI:** Settings → Backup & data → *Download database*.
 - **CLI:** `docker exec pocket-split pocket-split backup` (or `backup -o /data/backups/named.db`).
-- **API:** `GET /api/v1/backup` with a token.
 - **Portable:** each group's Settings → Export → JSON: people, expenses, shares and stored exchange rates, re-importable on another instance (Settings → Backup & data → Import) as a new group.
 
 All of these produce a consistent snapshot even while the app is writing. Copying `pocket-split.db` raw while the container runs can give you a torn file because of the WAL.

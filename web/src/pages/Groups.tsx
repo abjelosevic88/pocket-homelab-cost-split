@@ -10,13 +10,12 @@ import { MemberStack } from '../components/people'
 import { Select } from '../components/Select'
 
 export default function Groups() {
-  const { user, settings } = useApp()
+  const { settings } = useApp()
   const [params, setParams] = useSearchParams()
   const [show, setShow] = useState<'active' | 'archived'>('active')
-  const [all, setAll] = useState(false)
   const [creating, setCreating] = useState(params.get('new') === '1')
   const navigate = useNavigate()
-  const { data, loading, reload } = useAsync(() => api.get<Group[]>(`${V1}/groups?archived=${show === 'archived' ? 1 : 0}${all ? '&all=1' : ''}`), [show, all])
+  const { data, loading, reload } = useAsync(() => api.get<Group[]>(`${V1}/groups?archived=${show === 'archived' ? 1 : 0}`), [show])
   useEffect(() => { if (params.get('new') === '1') { setCreating(true); params.delete('new'); setParams(params, { replace: true }) } }, [params]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
@@ -24,7 +23,6 @@ export default function Groups() {
         actions={<button className="btn primary" onClick={() => setCreating(true)}>+ New group</button>} />
       <div className="toolbar">
         <Segmented value={show} onChange={setShow} options={[{ value: 'active', label: 'Active' }, { value: 'archived', label: 'Archived' }]} />
-        {user?.role === 'admin' && <label className="row small muted" style={{ marginLeft: 'auto' }}><input type="checkbox" checked={all} onChange={e => setAll(e.target.checked)} style={{ width: 'auto' }} /> Show every group (admin)</label>}
       </div>
       {loading && !data ? <Loading /> : !data || data.length === 0 ? (
         <Empty title={show === 'archived' ? 'No archived groups' : 'No groups yet'}>{show === 'active' && <>Create one for the next trip or the flat.</>}</Empty>

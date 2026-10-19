@@ -326,7 +326,9 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
   const [del, setDel] = useState(false)
   const [newName, setNewName] = useState('')
   const [rename, setRename] = useState<Member | null>(null)
-  const canDelete = user?.role === 'admin' || user?.id === g.created_by
+  // The creator decides who is in the group: deletes it, unlinks or removes other people's accounts.
+  const canManage = !g.created_by || user?.id === g.created_by
+  const othersAccount = (m: Member) => !!m.user_id && m.user_id !== user?.id && !canManage
   const run = async (fn: () => Promise<unknown>, msg: string) => { setBusy(true); try { await fn(); onChanged(); toast(msg) } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) } }
   const save = (e: React.FormEvent) => { e.preventDefault(); run(() => api.put(`${V1}/groups/${g.id}`, f), 'Saved') }
   const addName = () => { const n = newName.trim(); if (!n) return; run(async () => { await api.post(`${V1}/groups/${g.id}/members`, { name: n }); setNewName('') }, `${n} added`) }
@@ -350,7 +352,7 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
           <p className="muted small">Archiving hides the group from the list and stops new expenses; everything stays and can be brought back. Deleting removes the group with all its expenses for everyone.</p>
           <div className="row wrap">
             <button className="btn" disabled={busy} onClick={() => run(() => api.put(`${V1}/groups/${g.id}`, { ...f, archived: !g.archived }), g.archived ? 'Group restored' : 'Group archived')}>{g.archived ? 'Restore group' : 'Archive group'}</button>
-            {canDelete && <button className="btn danger" disabled={busy} onClick={() => setDel(true)}>Delete group…</button>}
+            {canManage && <button className="btn danger" disabled={busy} onClick={() => setDel(true)}>Delete group…</button>}
           </div>
           {del && <Confirm title={`Delete “${g.name}”?`} message={`${g.expense_count} expenses and every balance in it are deleted for everyone. There is no undo — export it first if in doubt.`} onCancel={() => setDel(false)} onConfirm={() => { setDel(false); run(async () => { await api.del(`${V1}/groups/${g.id}`); navigate('/groups') }, 'Group deleted') }} />}
         </Card>
@@ -360,7 +362,7 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
         </Card>
       </div>
       <Card title="People">
-        <p className="muted small">Anyone can be added by name. Link a person to an account so they see the group, their balance and “you” in the lists. Someone who paid or shares an expense cannot be removed.</p>
+        <p className="muted small">Anyone can be added by name. Only the people linked to an account here (and whoever created the group) see it: link a person to their account so they see the group, their balance and “you” in the lists. Someone who paid or shares an expense cannot be removed.</p>
         <table className="table compact">
           <tbody>
             {g.members.map(m => {
@@ -370,12 +372,12 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
                   <td style={{ width: 32 }}><MemberAvatar member={m} me={m.id === g.my_member_id} /></td>
                   <td><b>{m.name}</b>{m.id === g.my_member_id && <span className="badge" style={{ marginLeft: 6 }}>you</span>}<div className="muted small">{u ? u.email : 'no account'}</div></td>
                   <td className="right" style={{ whiteSpace: 'nowrap' }}>
-                    <Select className="link-user" value={m.user_id ? String(m.user_id) : ''} onChange={v => link(m, v)} placeholder="Link account…" clearLabel="Unlink" ariaLabel={`Link ${m.name} to an account`}
+                    <Select className="link-user" value={m.user_id ? String(m.user_id) : ''} onChange={v => link(m, v)} disabled={othersAccount(m)} placeholder="Link account…" clearLabel="Unlink" ariaLabel={`Link ${m.name} to an account`}
                       options={users.filter(u => u.id === m.user_id || !g.members.some(x => x.user_id === u.id)).map(u => ({ value: String(u.id), label: u.name || u.email, hint: u.email }))} />
                   </td>
                   <td className="right" style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn ghost sm" onClick={() => setRename(m)}>Rename</button>
-                    <button className="btn ghost sm danger-text" onClick={() => remove(m)} disabled={busy}>Remove</button>
+                    <button className="btn ghost sm danger-text" onClick={() => remove(m)} disabled={busy || othersAccount(m)}>Remove</button>
                   </td>
                 </tr>
               )

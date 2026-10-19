@@ -52,7 +52,7 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 
 | Area | What you get |
 |---|---|
-| **Groups** | Name, description, main currency (any ISO 4217 code), people with or without accounts, archive, delete. Everyone linked to the group sees it; admins see all. |
+| **Groups** | Name, description, main currency (any ISO 4217 code), people with or without accounts, archive, delete. Strictly per person: a group is seen only by whoever created it and the accounts linked to its people; admins included. |
 | **Expenses** | Title, amount, currency, exchange rate, who paid, date, category (14 built in, add your own from the form), notes. Split evenly / by shares / by percentage / by amount. Search, filter by person or category, grouped by month with monthly totals. |
 | **Currencies** | The full ISO 4217 list with correct decimals (¥ has none, BHD has three). Rates from [Frankfurter](https://frankfurter.app) (ECB, historical) with [ExchangeRate-API](https://www.exchangerate-api.com/docs/free) as fallback for the rest (BAM, RSD, …); cached per pair and day; always editable. |
 | **Balances** | Paid minus share per person, in the group currency. Settle-up suggestions with the fewest payments; *Mark as paid* records a reimbursement. |
@@ -61,7 +61,7 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 | **Home** | What you owe and are owed per currency across all groups, your share this month, recent activity. |
 | **Settings** | App title, default currency, date and time format, editable categories with icons. |
 | **Users** | Built-in login (multi-user, admin/member), or trust your SSO proxy's header, or no login on a trusted LAN. Personal API tokens. |
-| **Data** | SQLite backup from the UI/CLI/API, group export as JSON (re-importable) or CSV (one column per person), activity log per group, Prometheus `/metrics`. With **Pocket Core** on the box: registers itself, publishes `split.expense_created`, `split.expense_deleted` and `split.settled`, accepts paired-phone tokens, and offers “Sign in with Pocket Core” with zero configuration (any OpenID Connect provider works via `OIDC_*`). |
+| **Data** | SQLite backup from the CLI, group export as JSON (re-importable) or CSV (one column per person), activity log per group, Prometheus `/metrics`. With **Pocket Core** on the box: registers itself, publishes `split.expense_created`, `split.expense_deleted` and `split.settled`, accepts paired-phone tokens, and offers “Sign in with Pocket Core” with zero configuration (any OpenID Connect provider works via `OIDC_*`). |
 
 ## Run it
 
@@ -132,9 +132,7 @@ Everything else, including a Homepage `customapi` widget, is in [docs/api.md](do
 
 The database is a single file.
 
-- **UI:** Settings → Backup & data → *Download database* (a consistent `VACUUM INTO` copy).
-- **CLI:** `docker exec pocket-split pocket-split backup` writes to `/data/backups/`.
-- **API:** `GET /api/v1/backup`.
+- **CLI:** `docker exec pocket-split pocket-split backup` writes a consistent `VACUUM INTO` copy to `/data/backups/`. (There is no database download over HTTP: the file holds everyone's groups.)
 - **Export:** every group as JSON (complete, re-importable as a new group) or CSV.
 
 Restic / Borg / Backrest users: back up `DATA_DIR`, but snapshot the live `pocket-split.db` through one of the methods above rather than copying the WAL files raw. See [docs/backup.md](docs/backup.md).
