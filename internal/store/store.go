@@ -116,7 +116,29 @@ func (s *Store) Backup(ctx context.Context, dst string) error {
 	return err
 }
 
-// Counts returns row counts per table for metrics / the About page.
+// UserCounts returns what one user can see: their groups and those groups'
+// members and expenses.
+func (s *Store) UserCounts(ctx context.Context, userID int64) map[string]int {
+	out := map[string]int{}
+	q := map[string]string{
+		"groups":   `SELECT COUNT(1) FROM groups g WHERE ` + canSeeGroup,
+		"members":  `SELECT COUNT(1) FROM members m JOIN groups g ON g.id = m.group_id WHERE ` + canSeeGroup,
+		"expenses": `SELECT COUNT(1) FROM expenses e JOIN groups g ON g.id = e.group_id WHERE ` + canSeeGroup,
+	}
+	for k, sqlStr := range q {
+		var n int
+		if err := s.DB.QueryRowContext(ctx, sqlStr, userID, userID).Scan(&n); err == nil {
+			out[k] = n
+		}
+	}
+	var n int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM users`).Scan(&n); err == nil {
+		out["users"] = n
+	}
+	return out
+}
+
+// Counts returns box-wide row counts per table for the operator's /metrics.
 func (s *Store) Counts(ctx context.Context) map[string]int {
 	out := map[string]int{}
 	for _, t := range []string{"groups", "members", "expenses", "expense_shares", "activity", "users", "api_tokens"} {

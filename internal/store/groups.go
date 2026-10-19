@@ -8,11 +8,14 @@ import (
 
 // GroupFilter narrows ListGroups.
 type GroupFilter struct {
-	// UserID limits to groups where this user is a linked member; 0 = all.
-	UserID   int64
 	Archived *bool // nil = both
 	Q        string
 }
+
+// canSeeGroup is the one rule for who may see a group (and so its members,
+// expenses, balances and activity): the user who created it, or a user linked
+// to one of its members. Admins get no exception. Takes the user id twice.
+const canSeeGroup = `(g.created_by = ? OR EXISTS (SELECT 1 FROM members mv WHERE mv.group_id = g.id AND mv.user_id = ?))`
 
 const groupCols = `g.id, g.name, g.description, g.currency, COALESCE(g.created_by, 0), g.archived, g.created_at, g.updated_at`
 
@@ -76,6 +79,13 @@ func (s *Store) Touch(ctx context.Context, groupID int64) {
 	_, _ = s.DB.ExecContext(ctx, `UPDATE groups SET updated_at = ? WHERE id = ?`, Now(), groupID)
 }
 
+// CountGroups counts every group on the box (for seeding demo data only).
+func (s *Store) CountGroups(ctx context.Context) (int, error) {
+	var n int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM groups`).Scan(&n)
+	return n, err
+}
+
 // DeleteGroup removes a group with everything in it.
 func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
 	res, err := s.DB.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, id)
@@ -88,9 +98,10 @@ func (s *Store) DeleteGroup(ctx context.Context, id int64) error {
 	return nil
 }
 
-// GetGroup loads a group with members and the viewer's position (viewer 0 = none).
+// GetGroup loads a group the viewer may see, with members and the viewer's
+// position. A group the viewer may not see is ErrNotFound, like a missing one.
 func (s *Store) GetGroup(ctx context.Context, id, viewer int64) (*Group, error) {
-	g, err := scanGroup(s.DB.QueryRowContext(ctx, `SELECT `+groupCols+` FROM groups g WHERE g.id = ?`, id))
+	g, err := scanGroup(s.DB.QueryRowContext(ctx, `SELECT `+groupCols+` FROM groups g WHERE g.id = ? AND `+canSeeGroup, id, viewer, viewer))
 	if err != nil {
 		return nil, err
 	}
@@ -100,14 +111,10 @@ func (s *Store) GetGroup(ctx context.Context, id, viewer int64) (*Group, error) 
 	return g, nil
 }
 
-// ListGroups returns groups, newest activity first.
+// ListGroups returns the groups the viewer may see, newest activity first.
 func (s *Store) ListGroups(ctx context.Context, f GroupFilter, viewer int64) ([]*Group, error) {
-	var where []string
-	var args []any
-	if f.UserID != 0 {
-		where = append(where, `EXISTS (SELECT 1 FROM members m WHERE m.group_id = g.id AND m.user_id = ?)`)
-		args = append(args, f.UserID)
-	}
+	where := []string{canSeeGroup}
+	args := []any{viewer, viewer}
 	if f.Archived != nil {
 		where = append(where, `g.archived = ?`)
 		args = append(args, boolInt(*f.Archived))
@@ -116,10 +123,7 @@ func (s *Store) ListGroups(ctx context.Context, f GroupFilter, viewer int64) ([]
 		where = append(where, `(g.name LIKE ? OR g.description LIKE ?)`)
 		args = append(args, "%"+q+"%", "%"+q+"%")
 	}
-	sqlStr := `SELECT ` + groupCols + ` FROM groups g`
-	if len(where) > 0 {
-		sqlStr += ` WHERE ` + strings.Join(where, " AND ")
-	}
+	sqlStr := `SELECT ` + groupCols + ` FROM groups g WHERE ` + strings.Join(where, " AND ")
 	sqlStr += ` ORDER BY g.archived, g.updated_at DESC, g.id DESC`
 	rows, err := s.DB.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
@@ -269,22 +273,19 @@ func (s *Store) LogActivity(ctx context.Context, a Activity) {
 	_, _ = s.DB.ExecContext(ctx, `INSERT INTO activity (group_id, user_id, kind, expense_id, summary) VALUES (?, ?, ?, ?, ?)`, a.GroupID, uid, a.Kind, eid, a.Summary)
 }
 
-// ListActivity returns the newest lines for one group (groupID > 0) or for all
-// groups the user is in (groupID == 0, userID > 0; userID 0 = everything).
+// ListActivity returns the newest lines of the groups userID may see, all of
+// them (groupID 0) or one. userID 0 sees nothing.
 func (s *Store) ListActivity(ctx context.Context, groupID, userID int64, limit int) ([]Activity, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
 	q := `SELECT a.id, a.group_id, g.name, COALESCE(a.user_id, 0), COALESCE(u.name, u.email, ''), a.kind, COALESCE(a.expense_id, 0), a.summary, a.created_at
 		FROM activity a JOIN groups g ON g.id = a.group_id LEFT JOIN users u ON u.id = a.user_id`
-	var args []any
-	switch {
-	case groupID > 0:
-		q += ` WHERE a.group_id = ?`
+	q += ` WHERE ` + canSeeGroup
+	args := []any{userID, userID}
+	if groupID > 0 {
+		q += ` AND a.group_id = ?`
 		args = append(args, groupID)
-	case userID > 0:
-		q += ` WHERE EXISTS (SELECT 1 FROM members m WHERE m.group_id = a.group_id AND m.user_id = ?)`
-		args = append(args, userID)
 	}
 	q += ` ORDER BY a.id DESC LIMIT ?`
 	args = append(args, limit)

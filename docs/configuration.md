@@ -44,12 +44,12 @@ Rates are cached in the database, one per currency pair and day (today's is refr
 | `SESSION_TTL` | `720h` | Browser session lifetime. |
 | `SECURE_COOKIES` | `false` | Mark the session cookie `Secure`. Turn on behind HTTPS. |
 
-**Who sees what.** A group is visible to the users linked to one of its members, and to admins. Anyone in a group can add or edit expenses and manage its people; only the creator or an admin can delete it. Members do not need an account: add them by name and link an account later if they get one (their expenses stay). Roles: **admin** manages users, the shared settings and sees every group; **member** sees their groups. API tokens (`Authorization: Bearer …` or `X-API-Key`) work in every mode and act as the user who created them.
+**Who sees what.** Strictly per person: a group is visible to the user who created it and to the users linked to one of its members, nobody else (admins included); for anyone else its id is a `404`. Linking a household account to a person in the group is how you share it. Anyone in a group can add or edit expenses, add people and link accounts; only the creator deletes the group or unlinks / removes someone else's account. Members do not need an account: add them by name and link an account later if they get one (their expenses stay). Roles: **admin** manages users and the box-wide settings (title, rate lookups, built-in categories); **member** does not. Neither sees other people's groups. API tokens (`Authorization: Bearer …` or `X-API-Key`) work in every mode and act as the user who created them.
 
 ## In-app settings
 
-- **Settings → General:** app title, default currency for new groups, automatic exchange-rate lookup on/off, date and time format (admins only).
-- **Settings → Categories:** the expense categories. Anyone can add one (also by typing a new name in the expense form); admins rename, reorder or remove them.
+- **Settings → General:** default currency for new groups, date and time format (each person's own); app title and automatic exchange-rate lookup on/off (box-wide, admins only).
+- **Settings → Categories:** the expense categories. The built-in list is shared and admins edit it; anyone can add their own (also by typing a new name in the expense form), which only they see and change, except that it shows to the people of a group where it is used.
 - **Group → Settings:** name, description, main currency (locked once the group has expenses), people, archive, delete, export.
 
 ## Forgot your password?

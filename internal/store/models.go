@@ -1,7 +1,7 @@
 package store
 
 // User is an account that can sign in. The first user is the admin; admins
-// manage other users and see every group.
+// manage users and box-wide settings but see only their own groups, like everyone.
 type User struct {
 	ID           int64  `json:"id"`
 	Email        string `json:"email"`
@@ -92,7 +92,9 @@ type Activity struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// Settings are preferences stored as key/value pairs, shared by everyone.
+// Settings are preferences stored as key/value pairs. Title and FxAuto are
+// box-wide (admin only); DefaultCurrency, DateFormat and TimeFormat are
+// personal (user_settings), falling back to the box value.
 type Settings struct {
 	Title           string `json:"title"`
 	DefaultCurrency string `json:"default_currency"`
@@ -119,13 +121,14 @@ func oneOf(v string, list []string) bool {
 func ValidDateFormat(v string) bool { return oneOf(v, DateFormats) }
 func ValidTimeFormat(v string) bool { return oneOf(v, TimeFormats) }
 
-// Category is what an expense is for. Built-in ones come with the app; anyone
-// can add more. The id is a slug and is what expenses store.
+// Category is what an expense is for. Built-in ones come with the app and are
+// shared; anyone can add their own. The id is a slug and is what expenses store.
 type Category struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Icon      string `json:"icon"`
 	Builtin   bool   `json:"builtin"`
 	SortOrder int    `json:"sort_order"`
-	Count     int    `json:"count"` // expenses using it
+	Mine      bool   `json:"mine"`  // a custom category the viewer created (and may change)
+	Count     int    `json:"count"` // the viewer's visible expenses using it
 }

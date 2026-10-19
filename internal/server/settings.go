@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,7 +15,7 @@ import (
 )
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	st, err := s.store.GetSettings(r.Context())
+	st, err := s.store.GetUserSettings(r.Context(), userFrom(r.Context()).ID)
 	if err != nil {
 		s.fail(w, err, "settings")
 		return
@@ -34,11 +33,12 @@ func (s *Server) publicSettings(st store.Settings) map[string]any {
 	}
 }
 
+// handlePutSettings saves the caller's own preferences (default currency,
+// date and time format); an admin's save also sets the box-wide title and
+// rate lookups, a member's leaves those alone.
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
-	cur, err := s.store.GetSettings(r.Context())
+	u := userFrom(r.Context())
+	cur, err := s.store.GetUserSettings(r.Context(), u.ID)
 	if err != nil {
 		s.fail(w, err, "settings")
 		return
@@ -63,7 +63,13 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		in.TimeFormat = "auto"
 	}
 	in.SetupComplete = cur.SetupComplete
-	if err := s.store.SaveSettings(r.Context(), in); err != nil {
+	if u.Role != "admin" {
+		in.Title, in.FxAuto = cur.Title, cur.FxAuto
+	} else if err := s.store.SaveBoxSettings(r.Context(), in.Title, in.FxAuto); err != nil {
+		s.fail(w, err, "save settings")
+		return
+	}
+	if err := s.store.SaveUserSettings(r.Context(), u.ID, in); err != nil {
 		s.fail(w, err, "save settings")
 		return
 	}
@@ -81,25 +87,14 @@ func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 		"auth_mode": s.cfg.AuthMode, "data_dir": s.cfg.DataDir, "db_path": s.cfg.DBPath, "db_bytes": size,
 		"fx_provider": s.cfg.FXProvider,
 		"uptime":      time.Since(s.started).Round(time.Second).String(), "timezone": time.Now().Location().String(),
-		"counts": s.store.Counts(r.Context()),
+		"counts": s.store.UserCounts(r.Context(), userFrom(r.Context()).ID),
 	})
 }
 
-// ---------- backup / export / import ----------
-
-func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
-	dir := filepath.Join(s.cfg.DataDir, "backups")
-	name := fmt.Sprintf("pocket-split-%s.db", time.Now().Format("20060102-150405"))
-	dst := filepath.Join(dir, name)
-	if err := s.store.Backup(r.Context(), dst); err != nil {
-		s.fail(w, err, "backup")
-		return
-	}
-	defer os.Remove(dst)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	w.Header().Set("Content-Type", "application/vnd.sqlite3")
-	http.ServeFile(w, r, dst)
-}
+// ---------- export / import ----------
+//
+// There is no whole-database download over HTTP: the file holds everyone's
+// groups. Back the data directory up on the host (`pocket-split backup`).
 
 // Export is the portable JSON shape of one group (also accepted by /import).
 type Export struct {
@@ -234,7 +229,7 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 			skipped++
 			continue
 		}
-		if !s.store.CategoryExists(r.Context(), e.Category) {
+		if !s.store.CategoryExists(r.Context(), e.Category, u.ID) {
 			e.Category = "general"
 		}
 		ok := true

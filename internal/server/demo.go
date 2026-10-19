@@ -21,7 +21,7 @@ func (s *Server) seedDemo(ctx context.Context) error {
 		users = []store.User{*u}
 	}
 	me := users[0]
-	if groups, _ := s.store.ListGroups(ctx, store.GroupFilter{}, 0); len(groups) > 0 {
+	if n, _ := s.store.CountGroups(ctx); n > 0 {
 		return nil
 	}
 	uid := me.ID

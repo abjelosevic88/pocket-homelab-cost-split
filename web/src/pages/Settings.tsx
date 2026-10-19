@@ -46,18 +46,19 @@ function General() {
     <div className="two-col">
       <Card title="Preferences">
         <div className="grid" style={{ gap: 14 }}>
-          <Field label="App title" help="Shown in the sidebar and browser tab."><input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} maxLength={40} disabled={!isAdmin} /></Field>
-          <Field group label="Default currency for new groups" help="Every group can pick its own."><CurrencySelect value={f.default_currency} onChange={c => setF({ ...f, default_currency: c })} disabled={!isAdmin} /></Field>
-          <label className="row"><input type="checkbox" checked={f.fx_auto} onChange={e => setF({ ...f, fx_auto: e.target.checked })} style={{ width: 'auto' }} disabled={!isAdmin} /> Look exchange rates up automatically</label>
+          <Field label="App title" help={isAdmin ? 'Shown in the sidebar and browser tab, for everyone.' : 'Set by an admin for the whole box.'}><input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} maxLength={40} disabled={!isAdmin} /></Field>
+          <Field group label="Default currency for new groups" help="Yours only. Every group can pick its own."><CurrencySelect value={f.default_currency} onChange={c => setF({ ...f, default_currency: c })} /></Field>
+          <label className="row"><input type="checkbox" checked={f.fx_auto} onChange={e => setF({ ...f, fx_auto: e.target.checked })} style={{ width: 'auto' }} disabled={!isAdmin} /> Look exchange rates up automatically{!isAdmin && <span className="muted small">(set by an admin)</span>}</label>
           <div className="two-col tight">
             <Field group label="Date format" help={`Today: ${fmtYMD(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate(), true, f.date_format)}`}>
-              <Select value={f.date_format || 'auto'} onChange={v => setF({ ...f, date_format: v as SettingsT['date_format'] })} options={DATE_FORMATS.map(d => ({ value: d.id, label: d.label }))} disabled={!isAdmin} ariaLabel="Date format" />
+              <Select value={f.date_format || 'auto'} onChange={v => setF({ ...f, date_format: v as SettingsT['date_format'] })} options={DATE_FORMATS.map(d => ({ value: d.id, label: d.label }))} ariaLabel="Date format" />
             </Field>
             <Field group label="Time format" help={`Now: ${fmtTime(new Date(), f.time_format)}`}>
-              <Select value={f.time_format || 'auto'} onChange={v => setF({ ...f, time_format: v as SettingsT['time_format'] })} options={TIME_FORMATS.map(t => ({ value: t.id, label: t.label }))} disabled={!isAdmin} ariaLabel="Time format" />
+              <Select value={f.time_format || 'auto'} onChange={v => setF({ ...f, time_format: v as SettingsT['time_format'] })} options={TIME_FORMATS.map(t => ({ value: t.id, label: t.label }))} ariaLabel="Time format" />
             </Field>
           </div>
-          {isAdmin ? <div><button className="btn primary" onClick={save} disabled={busy}>Save</button></div> : <p className="muted small">Only an admin can change these.</p>}
+          <div><button className="btn primary" onClick={save} disabled={busy}>Save</button></div>
+          <p className="muted small">Currency, date and time format are your own; {isAdmin ? 'the title and rate lookups apply to everyone.' : 'the title and rate lookups are set by an admin.'}</p>
         </div>
       </Card>
       <Card title="Exchange rates">
@@ -83,7 +84,7 @@ function Users() {
   const run = async (fn: () => Promise<unknown>, msg: string) => { try { await fn(); await reloadMeta(); toast(msg) } catch (e) { toast((e as Error).message, 'err') } }
   return (
     <Card title="Users" actions={isAdmin && <button className="btn primary sm" onClick={() => setEdit({ role: 'member' })}>+ Add user</button>}>
-      <p className="muted">Everyone signs in with their own account and sees the groups they are a member of. Link a group member to an account under the group's Settings → People. Admins manage users and see every group.</p>
+      <p className="muted">Everyone signs in with their own account and sees only the groups they created or are linked to. Link a group member to an account under the group's Settings → People. Admins manage users and box-wide settings; they do not see other people's groups.</p>
       <table className="table compact">
         <thead><tr><th /><th>Name</th><th>Email</th><th>Role</th><th /></tr></thead>
         <tbody>
@@ -191,8 +192,7 @@ function Data() {
   return (
     <div className="two-col">
       <Card title="Backup">
-        <p className="muted">A consistent copy of the SQLite database (<code>VACUUM INTO</code>) with every group, expense and user. Restore by stopping the app and replacing <code>pocket-split.db</code> in the data directory.</p>
-        <a className="btn primary" href={`${V1}/backup`}>Download database</a>
+        <p className="muted">Export any of your groups as JSON or CSV under its Settings → Export. The whole database holds everyone's groups, so it is not downloadable here: whoever runs the box backs up the data directory (<code>pocket-split backup</code>).</p>
       </Card>
       <Card title="Import a group">
         <p className="muted">A JSON export from any group's Settings → Export becomes a new group here, with its people and expenses, at the exchange rates it was saved with.</p>
@@ -231,6 +231,8 @@ function Categories() {
   const { user, categories, reloadMeta } = useApp()
   const { toast } = useToast()
   const isAdmin = user?.role === 'admin'
+  // Your own categories are yours to change; the built-in list is box-wide and an admin's.
+  const canEdit = (c: Category) => c.mine || (c.builtin && isAdmin)
   const [draft, setDraft] = useState<Record<string, { label: string; icon: string }>>({})
   const [add, setAdd] = useState({ label: '', icon: '' })
   const [del, setDel] = useState<Category | null>(null)
@@ -243,25 +245,26 @@ function Categories() {
     const i = categories.findIndex(x => x.id === c.id), j = i + dir
     if (j < 0 || j >= categories.length) return
     const o = categories[j]
+    if (!canEdit(o)) return
     run(async () => { await api.put(`${V1}/categories/${c.id}`, { sort_order: j + 1 }); await api.put(`${V1}/categories/${o.id}`, { sort_order: i + 1 }) }, 'Moved')
   }
   const create = (e: React.FormEvent) => { e.preventDefault(); if (!add.label.trim()) return; run(async () => { await api.post(`${V1}/categories`, add); setAdd({ label: '', icon: '' }) }, 'Category added') }
   return (
     <Card title="Categories">
-      <p className="muted">What an expense is for. Everyone can add a category, also straight from the expense form by typing a name that is not in the list. {isAdmin ? 'Rename, reorder or remove them here; expenses of a removed category move to General.' : 'An admin can rename, reorder or remove them.'}</p>
+      <p className="muted">What an expense is for. Add your own here or straight from the expense form by typing a name that is not in the list; they are yours (others see one only where it is used in a group they share with you). Rename, reorder or remove your own here; expenses of a removed category move to General. {isAdmin ? 'As an admin you also edit the built-in ones, for everyone.' : 'The built-in ones are set by an admin.'}</p>
       <table className="table compact cat-table">
         <thead><tr><th style={{ width: 70 }}>Icon</th><th>Name</th><th>Used</th><th /></tr></thead>
         <tbody>
           {categories.map((c, i) => (
             <tr key={c.id}>
-              <td><input value={d(c).icon} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), icon: e.target.value } })} maxLength={8} disabled={!isAdmin} aria-label={`Icon for ${c.label}`} style={{ width: 56, textAlign: 'center' }} /></td>
-              <td><input value={d(c).label} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), label: e.target.value } })} maxLength={60} disabled={!isAdmin} aria-label={`Name of ${c.label}`} /></td>
-              <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.count} {c.count === 1 ? 'expense' : 'expenses'}{c.builtin && <span className="badge" style={{ marginLeft: 6 }}>built-in</span>}</td>
+              <td><input value={d(c).icon} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), icon: e.target.value } })} maxLength={8} disabled={!canEdit(c)} aria-label={`Icon for ${c.label}`} style={{ width: 56, textAlign: 'center' }} /></td>
+              <td><input value={d(c).label} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), label: e.target.value } })} maxLength={60} disabled={!canEdit(c)} aria-label={`Name of ${c.label}`} /></td>
+              <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.count} {c.count === 1 ? 'expense' : 'expenses'}{c.builtin && <span className="badge" style={{ marginLeft: 6 }}>built-in</span>}{!c.builtin && !c.mine && <span className="badge" style={{ marginLeft: 6 }}>shared</span>}</td>
               <td className="right" style={{ whiteSpace: 'nowrap' }}>
-                {isAdmin && <>
+                {canEdit(c) && <>
                   {changed(c) && <button className="btn primary sm" onClick={() => save(c)} disabled={busy}>Save</button>}
-                  <button className="btn ghost sm" onClick={() => move(c, -1)} disabled={busy || i === 0} title="Move up">↑</button>
-                  <button className="btn ghost sm" onClick={() => move(c, 1)} disabled={busy || i === categories.length - 1} title="Move down">↓</button>
+                  <button className="btn ghost sm" onClick={() => move(c, -1)} disabled={busy || i === 0 || !canEdit(categories[i - 1])} title="Move up">↑</button>
+                  <button className="btn ghost sm" onClick={() => move(c, 1)} disabled={busy || i === categories.length - 1 || !canEdit(categories[i + 1])} title="Move down">↓</button>
                   {c.id !== 'general' && <button className="btn ghost sm danger-text" onClick={() => setDel(c)} disabled={busy}>Remove</button>}
                 </>}
               </td>
@@ -275,7 +278,7 @@ function Categories() {
         <button className="btn primary" disabled={busy || !add.label.trim()}>Add</button>
       </form>
       <p className="muted small mt-sm">The icon is any emoji; leave it empty for 🏷️.</p>
-      {del && <Confirm title={`Remove “${del.label}”?`} message={`${del.count} ${del.count === 1 ? 'expense moves' : 'expenses move'} to General. The category is gone for every group.`} onCancel={() => setDel(null)} onConfirm={() => { const c = del; setDel(null); run(() => api.del(`${V1}/categories/${c.id}`), 'Category removed') }} />}
+      {del && <Confirm title={`Remove “${del.label}”?`} message={`${del.count} ${del.count === 1 ? 'expense moves' : 'expenses move'} to General. The category is gone from every group that used it.`} onCancel={() => setDel(null)} onConfirm={() => { const c = del; setDel(null); run(() => api.del(`${V1}/categories/${c.id}`), 'Category removed') }} />}
     </Card>
   )
 }

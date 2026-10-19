@@ -88,7 +88,7 @@ func (s *Server) buildExpense(ctx context.Context, g *store.Group, in expenseInp
 	if in.Category == "" {
 		in.Category = "general"
 	}
-	if !s.store.CategoryExists(ctx, in.Category) {
+	if !s.store.CategoryExists(ctx, in.Category, actorID(ctx)) {
 		return errors.New("unknown category " + in.Category)
 	}
 	if in.SplitMode == "" {
@@ -176,6 +176,7 @@ func (s *Server) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
 		"amount": e.Amount, "currency": e.Currency, "amount_group": e.AmountGroup, "group_currency": g.Currency,
 		"date": e.Date, "category": e.Category, "paid_by": e.PaidBy, "reimbursement": e.Reimbursement,
+		"actor_email": u.Email, "audience_emails": s.audienceEmails(r.Context(), g),
 	})
 	writeJSON(w, http.StatusCreated, e)
 }
@@ -221,8 +222,36 @@ func (s *Server) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 	s.publish("split.expense_deleted", fmt.Sprintf("expense:%d", e.ID), map[string]any{
 		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
 		"amount": e.Amount, "currency": e.Currency, "date": e.Date, "reimbursement": e.Reimbursement,
+		"actor_email": u.Email, "audience_emails": s.audienceEmails(r.Context(), g),
 	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// audienceEmails lists the accounts that may see the group (its creator and
+// every linked member), so a consumer of the event bus can show it to exactly
+// those people and nobody else.
+func (s *Server) audienceEmails(ctx context.Context, g *store.Group) []string {
+	ids := []int64{}
+	seen := map[int64]bool{}
+	add := func(id int64) {
+		if id != 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	add(g.CreatedBy)
+	for _, m := range g.Members {
+		if m.UserID != nil {
+			add(*m.UserID)
+		}
+	}
+	out := []string{}
+	for _, id := range ids {
+		if u, err := s.store.GetUser(ctx, id); err == nil {
+			out = append(out, u.Email)
+		}
+	}
+	return out
 }
 
 // expenseSummary is the one-line form for the activity feed: "Dinner · 48.00 EUR · paid by Ana".

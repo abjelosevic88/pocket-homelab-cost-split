@@ -20,8 +20,9 @@ func groupFrom(ctx context.Context) *store.Group {
 	return g
 }
 
-// withGroup loads the group in the URL and checks the viewer may see it: a
-// linked member, or an admin. Others get 404, not 403, so group ids leak nothing.
+// withGroup loads the group in the URL if the viewer may see it: they created
+// it or are linked to one of its members. Admins get no exception. Others get
+// 404, not 403, so group ids leak nothing.
 func (s *Server) withGroup(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := userFrom(r.Context())
@@ -30,20 +31,13 @@ func (s *Server) withGroup(next http.Handler) http.Handler {
 			s.fail(w, err, "group")
 			return
 		}
-		if g.MyMemberID == 0 && u.Role != "admin" {
-			writeErr(w, http.StatusNotFound, "not found")
-			return
-		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), groupKey, g)))
 	})
 }
 
 func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
-	f := store.GroupFilter{UserID: u.ID, Q: r.URL.Query().Get("q")}
-	if queryBool(r, "all") && u.Role == "admin" {
-		f.UserID = 0
-	}
+	f := store.GroupFilter{Q: r.URL.Query().Get("q")}
 	switch r.URL.Query().Get("archived") {
 	case "1", "true":
 		t := true
@@ -87,7 +81,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
 	if in.Currency == "" {
-		st, _ := s.store.GetSettings(r.Context())
+		st, _ := s.store.GetUserSettings(r.Context(), u.ID)
 		in.Currency = st.DefaultCurrency
 	}
 	if !currency.Valid(in.Currency) {
@@ -189,8 +183,8 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	g := groupFrom(r.Context())
 	u := userFrom(r.Context())
-	if u.Role != "admin" && g.CreatedBy != u.ID {
-		writeErr(w, http.StatusForbidden, "only the person who created the group (or an admin) can delete it")
+	if !canManage(g, u) {
+		writeErr(w, http.StatusForbidden, "only the person who created the group can delete it")
 		return
 	}
 	if err := s.store.DeleteGroup(r.Context(), g.ID); err != nil {
@@ -199,6 +193,13 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("group deleted", "id", g.ID, "name", g.Name, "by", u.Email)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// canManage: the group's creator decides who else is in it (deletes it,
+// unlinks or removes other people's accounts). A group whose creator's account
+// is gone falls to the people still linked to it.
+func canManage(g *store.Group, u *store.User) bool {
+	return g.CreatedBy == u.ID || g.CreatedBy == 0
 }
 
 // ---- members ----
@@ -252,6 +253,7 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
 	g := groupFrom(r.Context())
+	u := userFrom(r.Context())
 	m, err := s.store.GetMember(r.Context(), g.ID, idParam(r, "mid"))
 	if err != nil {
 		s.fail(w, err, "member")
@@ -266,6 +268,11 @@ func (s *Server) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
 		m.Name = n
 	}
 	if in.UserID != nil {
+		changing := (m.UserID == nil) != (*in.UserID <= 0) || (m.UserID != nil && *m.UserID != *in.UserID)
+		if changing && m.UserID != nil && *m.UserID != u.ID && !canManage(g, u) {
+			writeErr(w, http.StatusForbidden, "only the person who created the group can change another person's account link")
+			return
+		}
 		if *in.UserID > 0 {
 			if _, err := s.store.GetUser(r.Context(), *in.UserID); err != nil {
 				writeErr(w, http.StatusBadRequest, "unknown user")
@@ -294,6 +301,10 @@ func (s *Server) handleDeleteMember(w http.ResponseWriter, r *http.Request) {
 	m, err := s.store.GetMember(r.Context(), g.ID, id)
 	if err != nil {
 		s.fail(w, err, "member")
+		return
+	}
+	if u := userFrom(r.Context()); m.UserID != nil && *m.UserID != u.ID && !canManage(g, u) {
+		writeErr(w, http.StatusForbidden, "only the person who created the group can remove another person's account")
 		return
 	}
 	if used, _ := s.store.MemberInUse(r.Context(), id); used {
@@ -337,7 +348,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGroupActivity(w http.ResponseWriter, r *http.Request) {
 	g := groupFrom(r.Context())
-	a, err := s.store.ListActivity(r.Context(), g.ID, 0, int(queryInt(r, "limit")))
+	a, err := s.store.ListActivity(r.Context(), g.ID, userFrom(r.Context()).ID, int(queryInt(r, "limit")))
 	if err != nil {
 		s.fail(w, err, "activity")
 		return
@@ -402,7 +413,7 @@ type Who struct {
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
-	groups, err := s.store.ListGroups(r.Context(), store.GroupFilter{UserID: u.ID}, u.ID)
+	groups, err := s.store.ListGroups(r.Context(), store.GroupFilter{}, u.ID)
 	if err != nil {
 		s.fail(w, err, "dashboard")
 		return
