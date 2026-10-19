@@ -39,6 +39,9 @@ type Server struct {
 	requests atomic.Int64
 	errors   atomic.Int64
 
+	oidcMu sync.Mutex
+	oidc   *oidcProvider
+
 	core     *core.Client
 	coreMu   sync.Mutex
 	coreOK   bool
@@ -55,6 +58,7 @@ type resolvedURL struct {
 func New(cfg *config.Config, st *store.Store, log *slog.Logger, webFS fs.FS) *Server {
 	ua := "PocketSplit/" + Version + " (+https://github.com/abjelosevic88/pocket-homelab-cost-split)"
 	return &Server{cfg: cfg, store: st, log: log, webFS: webFS, started: time.Now(), fx: fx.New(cfg.FXProvider, ua, cfg.FXTimeout),
+		oidc:     &oidcProvider{issuerURL: cfg.OIDCIssuer},
 		core:     core.New(cfg.CoreURL, core.Options{TokenFile: cfg.DataDir + "/core.token", UserAgent: ua}),
 		resolved: map[string]resolvedURL{}}
 }
@@ -129,13 +133,18 @@ func (s *Server) coreLoop(ctx context.Context) {
 }
 
 func (s *Server) registerWithCore(ctx context.Context) error {
-	reg, err := s.core.Register(ctx, s.cfg.CoreRegistrationKey, core.Manifest{
+	m := core.Manifest{
 		Slug: "split", Name: "Pocket Split",
 		Description: "A small self-hosted cost splitter for trips, flats and dinners: who paid what, in any currency, and who owes whom.",
 		Icon:        "/favicon.svg", Version: Version,
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "SPLIT",
 		Publishes: []string{"split.expense_created", "split.expense_deleted", "split.settled"},
-	})
+	}
+	// Ask Core for a relying-party client so "Sign in with Pocket Core" needs no configuration.
+	if s.cfg.BaseURL != "" {
+		m.OIDC = &core.OIDCRequest{RedirectURIs: []string{s.oidcCallbackURL()}}
+	}
+	reg, err := s.core.Register(ctx, s.cfg.CoreRegistrationKey, m)
 	if err != nil {
 		return err
 	}
@@ -213,6 +222,8 @@ func (s *Server) Router() http.Handler {
 		r.Post("/auth/login", s.handleLogin)
 		r.Post("/auth/setup", s.handleSetup)
 		r.Get("/auth/status", s.handleAuthStatus)
+		r.Get("/auth/oidc/start", s.handleOIDCStart)
+		r.Get("/auth/oidc/callback", s.handleOIDCCallback)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
