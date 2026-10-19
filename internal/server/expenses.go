@@ -167,11 +167,16 @@ func (s *Server) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err, "save expense")
 		return
 	}
-	kind := "expense.added"
+	kind, topic := "expense.added", "split.expense_created"
 	if e.Reimbursement {
-		kind = "reimbursement.added"
+		kind, topic = "reimbursement.added", "split.settled"
 	}
 	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: kind, ExpenseID: e.ID, Summary: s.expenseSummary(g, e)})
+	s.publish(topic, fmt.Sprintf("expense:%d", e.ID), map[string]any{
+		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
+		"amount": e.Amount, "currency": e.Currency, "amount_group": e.AmountGroup, "group_currency": g.Currency,
+		"date": e.Date, "category": e.Category, "paid_by": e.PaidBy, "reimbursement": e.Reimbursement,
+	})
 	writeJSON(w, http.StatusCreated, e)
 }
 
@@ -213,6 +218,10 @@ func (s *Server) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: "expense.deleted", Summary: s.expenseSummary(g, e)})
+	s.publish("split.expense_deleted", fmt.Sprintf("expense:%d", e.ID), map[string]any{
+		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
+		"amount": e.Amount, "currency": e.Currency, "date": e.Date, "reimbursement": e.Reimbursement,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
