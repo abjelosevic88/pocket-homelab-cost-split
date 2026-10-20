@@ -179,13 +179,15 @@ func (s *Store) SaveExpenseOperation(ctx context.Context, e *Expense, op *core.O
 		createdBy = e.CreatedBy
 	}
 	if e.ID == 0 {
-		res, err := tx.ExecContext(ctx, `INSERT INTO expenses (group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, created_by, source)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			e.GroupID, e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), createdBy, e.Source)
+		if err := tx.QueryRowContext(ctx, `UPDATE expense_sequence SET value=MAX(value,(SELECT COALESCE(MAX(id),0) FROM expenses))+1 WHERE singleton=1 RETURNING value`).Scan(&e.ID); err != nil {
+			return false, err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO expenses (id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, created_by, source)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.ID, e.GroupID, e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), createdBy, e.Source)
 		if err != nil {
 			return false, err
 		}
-		e.ID, _ = res.LastInsertId()
 		e.CreatedAt, e.UpdatedAt = Now(), Now()
 	} else {
 		res, err := tx.ExecContext(ctx, `UPDATE expenses SET title = ?, amount = ?, currency = ?, fx_rate = ?, amount_group = ?, paid_by = ?, date = ?, category = ?, notes = ?, split_mode = ?, reimbursement = ?, updated_at = ?
