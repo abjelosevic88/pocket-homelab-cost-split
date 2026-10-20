@@ -6,7 +6,17 @@ Base path `/api/v1`. JSON in, JSON out. Authenticate with the session cookie (br
 Authorization: Bearer ps_xxxxxxxx…
 ```
 
-Create tokens under **Settings → API tokens**. A token acts as the user who created it and sees their groups. Dates are `YYYY-MM-DD`. **Money is in integer minor units** of the given currency: `1250` = 12.50 EUR, `1500` = ¥1500, `1250` = 1.250 BHD. `GET /currencies` tells you the decimals.
+Create tokens under **Settings → API tokens**. A token acts as the user who created it and sees their groups. With Pocket Core on the box, a token Core issued to a paired phone or a person (`pcd_`, `pcu_`, `pco_`) works the same way.
+
+**Pocket Core app links.** Another Pocket app may act for a person with a five-minute `pcx_` token from Core (see `docs/links.md` in pocket-homelab-core). It sees exactly what that person sees, and only these routes; everything else answers `403`:
+
+| Scope | Routes |
+|---|---|
+| any | `GET /auth/me` |
+| `groups:read` | `GET /groups`, `GET /groups/{id}`, `GET /groups/{id}/expenses`, `GET /groups/{id}/expenses/{eid}`, `GET /categories` |
+| `expenses:write` | `POST /groups/{id}/expenses`; `PUT` · `DELETE /groups/{id}/expenses/{eid}` only for expenses that app added (others answer `404`) |
+
+An expense added over a link has `"source": "<app slug>"` (empty for people), and its activity line ends in “· via Pocket <App>”. Dates are `YYYY-MM-DD`. **Money is in integer minor units** of the given currency: `1250` = 12.50 EUR, `1500` = ¥1500, `1250` = 1.250 BHD. `GET /currencies` tells you the decimals.
 
 ## Groups
 

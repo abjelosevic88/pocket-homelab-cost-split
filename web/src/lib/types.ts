@@ -42,6 +42,8 @@ export interface Expense {
   split_mode: SplitMode
   reimbursement: boolean
   created_by: number
+  /** Pocket app slug that added it through a Core link ("kitchen"), "" for people */
+  source: string
   created_at: string
   updated_at: string
   shares: Share[]

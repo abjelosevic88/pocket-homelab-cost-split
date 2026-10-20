@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -34,24 +35,55 @@ func actorID(ctx context.Context) int64 {
 // or trusted proxy header depending on AUTH_MODE.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u, err := s.resolveUser(r)
+		u, p, err := s.resolve(r)
+		if errors.Is(err, errLinkScope) {
+			writeErr(w, http.StatusForbidden, "this Pocket Core link does not cover "+r.Method+" "+r.URL.Path)
+			return
+		}
 		if err != nil || u == nil {
 			writeErr(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, u)))
+		ctx := context.WithValue(r.Context(), userKey, u)
+		if p != nil {
+			ctx = context.WithValue(ctx, principalKey, p)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 func (s *Server) resolveUser(r *http.Request) (*store.User, error) {
+	u, _, err := s.resolve(r)
+	return u, err
+}
+
+// resolve finds the person behind the request and, for another Pocket app
+// acting through a Core link (pcx_ token), the link it came in on. A link
+// token is refused with errLinkScope on any route its scopes do not cover.
+func (s *Server) resolve(r *http.Request) (*store.User, *principal, error) {
 	ctx := r.Context()
-	tok := ""
-	if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
-		tok = strings.TrimSpace(h[7:])
-	} else if t := r.Header.Get("X-API-Key"); t != "" {
-		tok = t
+	if tok := bearerToken(r); tok != "" && s.core.Configured() && core.IsLinkToken(tok) {
+		p, email, name, err := s.linkPrincipal(ctx, tok, r)
+		if err != nil {
+			return nil, nil, err
+		}
+		u, err := s.firstOrSystemUser(ctx, email, name)
+		return u, p, err
 	}
-	if tok != "" {
+	u, err := s.resolvePlain(r)
+	return u, nil, err
+}
+
+func bearerToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
+		return strings.TrimSpace(h[7:])
+	}
+	return r.Header.Get("X-API-Key")
+}
+
+func (s *Server) resolvePlain(r *http.Request) (*store.User, error) {
+	ctx := r.Context()
+	if tok := bearerToken(r); tok != "" {
 		if s.core.Configured() && core.IsCoreToken(tok) {
 			return s.coreUser(ctx, tok)
 		}

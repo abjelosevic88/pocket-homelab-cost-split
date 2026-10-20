@@ -158,7 +158,9 @@ func (s *Server) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	e := &store.Expense{GroupID: g.ID, CreatedBy: u.ID}
+	// A linked app's expenses carry its slug, which is what lets it change
+	// them later (and nothing else).
+	e := &store.Expense{GroupID: g.ID, CreatedBy: u.ID, Source: linkApp(r.Context())}
 	if err := s.buildExpense(r.Context(), g, in, e); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -171,11 +173,11 @@ func (s *Server) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 	if e.Reimbursement {
 		kind, topic = "reimbursement.added", "split.settled"
 	}
-	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: kind, ExpenseID: e.ID, Summary: s.expenseSummary(g, e)})
+	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: kind, ExpenseID: e.ID, Summary: s.expenseSummary(g, e) + viaLink(r.Context())})
 	s.publish(topic, fmt.Sprintf("expense:%d", e.ID), map[string]any{
 		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
 		"amount": e.Amount, "currency": e.Currency, "amount_group": e.AmountGroup, "group_currency": g.Currency,
-		"date": e.Date, "category": e.Category, "paid_by": e.PaidBy, "reimbursement": e.Reimbursement,
+		"date": e.Date, "category": e.Category, "paid_by": e.PaidBy, "reimbursement": e.Reimbursement, "source": e.Source,
 		"actor_email": u.Email, "audience_emails": s.audienceEmails(r.Context(), g),
 	})
 	writeJSON(w, http.StatusCreated, e)
@@ -187,6 +189,10 @@ func (s *Server) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
 	e, err := s.store.GetExpense(r.Context(), g.ID, idParam(r, "eid"))
 	if err != nil {
 		s.fail(w, err, "expense")
+		return
+	}
+	if !linkOwns(r.Context(), e) {
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	var in expenseInput
@@ -202,7 +208,7 @@ func (s *Server) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err, "save expense")
 		return
 	}
-	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: "expense.updated", ExpenseID: e.ID, Summary: s.expenseSummary(g, e)})
+	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: "expense.updated", ExpenseID: e.ID, Summary: s.expenseSummary(g, e) + viaLink(r.Context())})
 	writeJSON(w, http.StatusOK, e)
 }
 
@@ -214,11 +220,15 @@ func (s *Server) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err, "expense")
 		return
 	}
+	if !linkOwns(r.Context(), e) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err := s.store.DeleteExpense(r.Context(), g.ID, e.ID); err != nil {
 		s.fail(w, err, "delete expense")
 		return
 	}
-	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: "expense.deleted", Summary: s.expenseSummary(g, e)})
+	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: "expense.deleted", Summary: s.expenseSummary(g, e) + viaLink(r.Context())})
 	s.publish("split.expense_deleted", fmt.Sprintf("expense:%d", e.ID), map[string]any{
 		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
 		"amount": e.Amount, "currency": e.Currency, "date": e.Date, "reimbursement": e.Reimbursement,

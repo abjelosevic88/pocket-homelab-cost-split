@@ -103,7 +103,7 @@ function ExpenseRow({ e, g, icon }: { e: Expense; g: GroupT; icon: string }) {
       <span className="ico" title={e.category}>{icon}</span>
       <span className="info">
         <span className="nm">{e.title}</span>
-        <span className="meta">{fmtDate(e.date, false)} · <b>{memberName(g.members, e.paid_by)}</b> paid for {listNames(g.members, e.shares.map(s => s.member_id))}{e.split_mode !== 'even' && <span className="badge" style={{ marginLeft: 6 }}>{SPLIT_LABEL[e.split_mode]}</span>}</span>
+        <span className="meta">{fmtDate(e.date, false)} · <b>{memberName(g.members, e.paid_by)}</b> paid for {listNames(g.members, e.shares.map(s => s.member_id))}{e.split_mode !== 'even' && <span className="badge" style={{ marginLeft: 6 }}>{SPLIT_LABEL[e.split_mode]}</span>}{e.source && <span className="muted"> · via Pocket {e.source.charAt(0).toUpperCase() + e.source.slice(1)}</span>}</span>
       </span>
       <span className="side">
         <b><Money minor={e.amount} code={e.currency} /></b>

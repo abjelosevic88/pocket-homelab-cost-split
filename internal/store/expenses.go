@@ -25,12 +25,12 @@ type ExpenseFilter struct {
 	Offset         int
 }
 
-const expenseCols = `id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, COALESCE(created_by, 0), created_at, updated_at`
+const expenseCols = `id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, COALESCE(created_by, 0), source, created_at, updated_at`
 
 func scanExpense(row interface{ Scan(...any) error }) (*Expense, error) {
 	var e Expense
 	var reimb int
-	if err := row.Scan(&e.ID, &e.GroupID, &e.Title, &e.Amount, &e.Currency, &e.FxRate, &e.AmountGroup, &e.PaidBy, &e.Date, &e.Category, &e.Notes, &e.SplitMode, &reimb, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt); err != nil {
+	if err := row.Scan(&e.ID, &e.GroupID, &e.Title, &e.Amount, &e.Currency, &e.FxRate, &e.AmountGroup, &e.PaidBy, &e.Date, &e.Category, &e.Notes, &e.SplitMode, &reimb, &e.CreatedBy, &e.Source, &e.CreatedAt, &e.UpdatedAt); err != nil {
 		return nil, notFound(err)
 	}
 	e.Reimbursement = reimb == 1
@@ -163,9 +163,9 @@ func (s *Store) SaveExpense(ctx context.Context, e *Expense) error {
 		createdBy = e.CreatedBy
 	}
 	if e.ID == 0 {
-		res, err := tx.ExecContext(ctx, `INSERT INTO expenses (group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, created_by)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			e.GroupID, e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), createdBy)
+		res, err := tx.ExecContext(ctx, `INSERT INTO expenses (group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, created_by, source)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.GroupID, e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), createdBy, e.Source)
 		if err != nil {
 			return err
 		}
