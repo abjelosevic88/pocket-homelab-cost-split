@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	core "github.com/abjelosevic88/pocket-homelab-core/sdk"
 	"sort"
 	"strings"
 
@@ -152,12 +153,27 @@ func (s *Store) GetExpense(ctx context.Context, groupID, id int64) (*Expense, er
 
 // SaveExpense inserts (ID 0) or replaces an expense with its shares. Shares
 // must already carry Amount and AmountGroup (see ComputeShares).
-func (s *Store) SaveExpense(ctx context.Context, e *Expense) error {
+func (s *Store) SaveExpense(ctx context.Context, e *Expense, after ...core.CommitHook) error {
+	_, err := s.SaveExpenseOperation(ctx, e, nil, after...)
+	return err
+}
+func (s *Store) SaveExpenseOperation(ctx context.Context, e *Expense, op *core.Operation, after ...core.CommitHook) (bool, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
+	var replay Expense
+	if ok, err := op.Replay(ctx, tx, &replay); err != nil {
+		return false, err
+	} else if ok {
+		var id int64
+		if err = tx.QueryRowContext(ctx, `SELECT id FROM expenses WHERE id=? AND group_id=?`, replay.ID, e.GroupID).Scan(&id); err != nil {
+			return false, notFound(err)
+		}
+		*e = replay
+		return true, nil
+	}
 	var createdBy any
 	if e.CreatedBy != 0 {
 		createdBy = e.CreatedBy
@@ -167,7 +183,7 @@ func (s *Store) SaveExpense(ctx context.Context, e *Expense) error {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			e.GroupID, e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), createdBy, e.Source)
 		if err != nil {
-			return err
+			return false, err
 		}
 		e.ID, _ = res.LastInsertId()
 		e.CreatedAt, e.UpdatedAt = Now(), Now()
@@ -176,37 +192,47 @@ func (s *Store) SaveExpense(ctx context.Context, e *Expense) error {
 			WHERE id = ? AND group_id = ?`,
 			e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), Now(), e.ID, e.GroupID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrNotFound
+			return false, ErrNotFound
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM expense_shares WHERE expense_id = ?`, e.ID); err != nil {
-			return err
+			return false, err
 		}
 	}
 	for _, sh := range e.Shares {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO expense_shares (expense_id, member_id, share, amount, amount_group) VALUES (?, ?, ?, ?, ?)`, e.ID, sh.MemberID, sh.Share, sh.Amount, sh.AmountGroup); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE groups SET updated_at = ? WHERE id = ?`, Now(), e.GroupID); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit()
+	if err = op.Save(ctx, tx, e); err != nil {
+		return false, err
+	}
+	return false, core.Commit(tx, after...)
 }
 
 // DeleteExpense removes an expense with its shares.
-func (s *Store) DeleteExpense(ctx context.Context, groupID, id int64) error {
-	res, err := s.DB.ExecContext(ctx, `DELETE FROM expenses WHERE id = ? AND group_id = ?`, id, groupID)
+func (s *Store) DeleteExpense(ctx context.Context, groupID, id int64, after ...core.CommitHook) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `DELETE FROM expenses WHERE id=? AND group_id=?`, id, groupID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	s.Touch(ctx, groupID)
-	return nil
+	if _, err = tx.ExecContext(ctx, `UPDATE groups SET updated_at=? WHERE id=?`, Now(), groupID); err != nil {
+		return err
+	}
+	return core.Commit(tx, after...)
 }
 
 // ComputeShares fills Amount and AmountGroup on e.Shares from e.Amount,

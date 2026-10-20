@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	core "github.com/abjelosevic88/pocket-homelab-core/sdk"
 	"math"
 	"net/http"
 	"strings"
@@ -158,28 +159,53 @@ func (s *Server) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	// A linked app's expenses carry its slug, which is what lets it change
-	// them later (and nothing else).
-	e := &store.Expense{GroupID: g.ID, CreatedBy: u.ID, Source: linkApp(r.Context())}
-	if err := s.buildExpense(r.Context(), g, in, e); err != nil {
+	op, err := core.NewOperation(fmt.Sprintf("%d:%s:groups:%d:expenses", u.ID, linkApp(r.Context()), g.ID), r.Header.Get("Idempotency-Key"), in)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.store.SaveExpense(r.Context(), e); err != nil {
-		s.fail(w, err, "save expense")
+	e := &store.Expense{GroupID: g.ID, CreatedBy: u.ID, Source: linkApp(r.Context())}
+	// Resolve a replay before defaults or exchange rates can change.
+	tx, err := s.store.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		s.fail(w, err, "read operation")
+		return
+	}
+	found, err := op.Replay(r.Context(), tx, e)
+	tx.Rollback()
+	if err != nil {
+		s.fail(w, err, "read operation")
+		return
+	}
+	if found {
+		current, err := s.store.GetExpense(r.Context(), g.ID, e.ID)
+		if err != nil {
+			s.fail(w, err, "expense")
+			return
+		}
+		if !linkOwns(r.Context(), current) {
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeJSON(w, http.StatusCreated, e)
+		return
+	}
+	if err = s.buildExpense(r.Context(), g, in, e); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	kind, topic := "expense.added", "split.expense_created"
 	if e.Reimbursement {
 		kind, topic = "reimbursement.added", "split.settled"
 	}
-	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: kind, ExpenseID: e.ID, Summary: s.expenseSummary(g, e) + viaLink(r.Context())})
-	s.publish(topic, fmt.Sprintf("expense:%d", e.ID), map[string]any{
-		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
-		"amount": e.Amount, "currency": e.Currency, "amount_group": e.AmountGroup, "group_currency": g.Currency,
-		"date": e.Date, "category": e.Category, "paid_by": e.PaidBy, "reimbursement": e.Reimbursement, "source": e.Source,
-		"actor_email": u.Email, "audience_emails": s.audienceEmails(r.Context(), g),
-	})
+	replayed, err := s.store.SaveExpenseOperation(r.Context(), e, op, s.expenseEvent(r.Context(), u, g, e, topic))
+	if err != nil {
+		s.fail(w, err, "save expense")
+		return
+	}
+	if !replayed {
+		s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: kind, ExpenseID: e.ID, Summary: s.expenseSummary(g, e) + viaLink(r.Context())})
+	}
 	writeJSON(w, http.StatusCreated, e)
 }
 
@@ -224,16 +250,11 @@ func (s *Server) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	if err := s.store.DeleteExpense(r.Context(), g.ID, e.ID); err != nil {
+	if err := s.store.DeleteExpense(r.Context(), g.ID, e.ID, s.expenseEvent(r.Context(), u, g, e, "split.expense_deleted")); err != nil {
 		s.fail(w, err, "delete expense")
 		return
 	}
 	s.store.LogActivity(r.Context(), store.Activity{GroupID: g.ID, UserID: u.ID, Kind: "expense.deleted", Summary: s.expenseSummary(g, e) + viaLink(r.Context())})
-	s.publish("split.expense_deleted", fmt.Sprintf("expense:%d", e.ID), map[string]any{
-		"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
-		"amount": e.Amount, "currency": e.Currency, "date": e.Date, "reimbursement": e.Reimbursement,
-		"actor_email": u.Email, "audience_emails": s.audienceEmails(r.Context(), g),
-	})
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -160,18 +160,6 @@ func (s *Server) registerWithCore(ctx context.Context) error {
 	return nil
 }
 
-// publish persists an event locally; the SDK retries network delivery.
-func (s *Server) publish(topic, subject string, payload map[string]any) {
-	if !s.core.Configured() {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := s.core.Publish(ctx, topic, subject, payload); err != nil {
-		s.log.Warn("pocket core: outbox enqueue failed", "topic", topic, "err", err)
-	}
-}
-
 // resolveSibling asks Core where a sibling app lives (cached a minute) so the
 // *_URL settings may stay empty on a box with Core.
 func (s *Server) resolveSibling(ctx context.Context, slug string) string {
@@ -326,7 +314,7 @@ func (s *Server) fail(w http.ResponseWriter, err error, context string) {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not found")
 		return
-	case errors.Is(err, store.ErrConflict):
+	case errors.Is(err, store.ErrConflict), errors.Is(err, core.ErrOperationConflict):
 		writeErr(w, http.StatusConflict, "already exists")
 		return
 	}
