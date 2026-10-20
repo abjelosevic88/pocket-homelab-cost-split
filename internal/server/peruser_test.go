@@ -37,6 +37,15 @@ func newPerUserHarness(t *testing.T) *perUserHarness {
 			Token string `json:"token"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&in)
+		if scope, ok := linkTestTokens[in.Token]; ok && r.URL.Path == "/api/v1/auth/introspect" { // a linked app acting for Ben
+			app := map[string]any{"id": 3, "slug": "kitchen", "name": "Pocket Kitchen"}
+			if in.Token == "pcx_ben_day" {
+				app = map[string]any{"id": 4, "slug": "day", "name": "Pocket Day"}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "kind": "delegated", "scope": scope, "audience": "split",
+				"user": map[string]any{"id": 2, "email": "ben@example.com", "name": "Ben", "role": "member"}, "app": app})
+			return
+		}
 		if r.URL.Path != "/api/v1/auth/introspect" || in.Token != h.benCore {
 			_ = json.NewEncoder(w).Encode(map[string]any{"active": false})
 			return

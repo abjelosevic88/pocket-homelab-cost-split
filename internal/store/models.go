@@ -66,9 +66,12 @@ type Expense struct {
 	SplitMode     string  `json:"split_mode"`
 	Reimbursement bool    `json:"reimbursement"`
 	CreatedBy     int64   `json:"created_by"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
-	Shares        []Share `json:"shares"`
+	// Source is the Pocket app that added the expense through a Core link
+	// ("kitchen"), empty when a person added it.
+	Source    string  `json:"source"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+	Shares    []Share `json:"shares"`
 }
 
 // Share is one participant's part of an expense.

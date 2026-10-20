@@ -63,6 +63,8 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 | **Users** | Built-in login (multi-user, admin/member), or trust your SSO proxy's header, or no login on a trusted LAN. Personal API tokens. |
 | **Data** | SQLite backup from the CLI, group export as JSON (re-importable) or CSV (one column per person), activity log per group, Prometheus `/metrics`. With **Pocket Core** on the box: registers itself, publishes `split.expense_created`, `split.expense_deleted` and `split.settled`, accepts paired-phone tokens, and offers “Sign in with Pocket Core” with zero configuration (any OpenID Connect provider works via `OIDC_*`). |
 
+**Offers app links** (Pocket Core 0.5+): another Pocket app the person allowed in Core can act for them with a five-minute `pcx_` token. `groups:read` lists the groups they are in with members, expenses and categories; `expenses:write` adds expenses to those groups and changes or deletes only the ones that app added (stored with the app's name in `source`, shown as “via Pocket Kitchen” on the expense and in the activity feed). Every other route answers 403. Pocket Kitchen uses it to post a shopping trip as a shared expense; Pocket Day reads the day's shared expenses.
+
 ## Run it
 
 ```bash
