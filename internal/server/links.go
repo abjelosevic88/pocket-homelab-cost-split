@@ -99,7 +99,11 @@ func (s *Server) linkPrincipal(ctx context.Context, tok string, r *http.Request)
 	if !linkAllows(p.Scopes, r) {
 		return nil, "", "", errLinkScope
 	}
-	return p, strings.ToLower(in.User.Email), in.User.Name, nil
+	u, err := s.coreIdentityUser(ctx, in)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return p, u.Email, u.Name, nil
 }
 
 // linkOwns reports whether the request may change or delete the expense: a
