@@ -102,4 +102,19 @@ func TestExpenseReplayAndAtomicEvents(t *testing.T) {
 	if code, _ := call(h.anaTok, "checkout-1", body); code != 404 {
 		t.Fatal("deleted replay", code)
 	}
+
+	code, second := call(h.anaTok, "checkout-2", body)
+	if code != 201 {
+		t.Fatal(code)
+	}
+	if code, _ := h.do(h.anaTok, "DELETE", path+fmt.Sprintf("/%d", second.ID), nil); code != 204 {
+		t.Fatal(code)
+	}
+	code, third := call(h.anaTok, "checkout-3", body)
+	if code != 201 || third.ID <= second.ID {
+		t.Fatal("deleted expense ID reused", code, second.ID, third.ID)
+	}
+	if code, _ := call(h.anaTok, "checkout-2", body); code != 404 {
+		t.Fatal("receipt resolved to replacement expense", code)
+	}
 }
