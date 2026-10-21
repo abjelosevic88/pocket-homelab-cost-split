@@ -6,11 +6,12 @@ import type { Group } from '../lib/types'
 import { fmtDate } from '../lib/money'
 import { Card, Empty, Field, Loading, Modal, PageHeader, Segmented, useAsync, useToast } from '../components/ui'
 import { Money, CurrencySelect } from '../components/Money'
-import { MemberStack } from '../components/people'
+import { GroupIcon, MemberStack } from '../components/people'
+import { Icon } from '../components/icons'
 import { Select } from '../components/Select'
 
 export default function Groups() {
-  const { settings } = useApp()
+  const { settings, reloadGroups } = useApp()
   const [params, setParams] = useSearchParams()
   const [show, setShow] = useState<'active' | 'archived'>('active')
   const [creating, setCreating] = useState(params.get('new') === '1')
@@ -20,19 +21,20 @@ export default function Groups() {
   return (
     <>
       <PageHeader title="Groups" sub="A group is one pot of shared costs: a trip, a flat, a dinner. Balances are counted in its main currency; pay in any."
-        actions={<button className="btn primary" onClick={() => setCreating(true)}>+ New group</button>} />
+        actions={<button type="button" className="btn primary" onClick={() => setCreating(true)}><Icon name="plus" size={15} strokeWidth={2.2} />New group</button>} />
       <div className="toolbar">
         <Segmented value={show} onChange={setShow} options={[{ value: 'active', label: 'Active' }, { value: 'archived', label: 'Archived' }]} />
       </div>
       {loading && !data ? <Loading /> : !data || data.length === 0 ? (
-        <Empty title={show === 'archived' ? 'No archived groups' : 'No groups yet'}>{show === 'active' && <>Create one for the next trip or the flat.</>}</Empty>
+        <Empty icon={show === 'archived' ? 'archive' : 'users'} title={show === 'archived' ? 'No archived groups' : 'No groups yet'}>{show === 'active' && <>Create one for the next trip or the flat.</>}</Empty>
       ) : (
         <div className="group-grid">
           {data.map(g => (
             <Link key={g.id} to={`/groups/${g.id}`} className="card group-card">
               <div className="group-card-head">
+                <GroupIcon group={g} size={38} />
                 <div className="grow">
-                  <div className="nm">{g.name}{g.archived && <span className="badge" style={{ marginLeft: 6 }}>archived</span>}</div>
+                  <div className="nm">{g.name}{g.archived && <span className="badge">archived</span>}</div>
                   {g.description && <div className="muted small">{g.description}</div>}
                 </div>
                 <span className="badge cat">{g.currency}</span>
@@ -53,7 +55,7 @@ export default function Groups() {
           ))}
         </div>
       )}
-      {creating && <NewGroupModal defaultCurrency={settings?.default_currency || 'EUR'} onClose={() => setCreating(false)} onCreated={g => { setCreating(false); reload(); navigate(`/groups/${g.id}`) }} />}
+      {creating && <NewGroupModal defaultCurrency={settings?.default_currency || 'EUR'} onClose={() => setCreating(false)} onCreated={g => { setCreating(false); reload(); reloadGroups().catch(() => {}); navigate(`/groups/${g.id}`) }} />}
     </>
   )
 }
@@ -75,7 +77,7 @@ export function NewGroupModal({ defaultCurrency, onClose, onCreated }: { default
   const otherUsers = users.filter(u => !f.members.some(m => m.user_id === u.id))
   return (
     <Modal title="New group" onClose={onClose}>
-      <form onSubmit={submit} className="grid" style={{ gap: 14 }}>
+      <form onSubmit={submit} className="stack">
         <Field label="Name"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder="Lisbon week, Flat, Friday dinner…" autoFocus required maxLength={80} /></Field>
         <Field label="Description" help="Optional."><input value={f.description} onChange={e => setF({ ...f, description: e.target.value })} maxLength={200} /></Field>
         <Field group label="Main currency" help="Balances and totals are counted in it. Expenses can be paid in any currency and are converted at the day's rate. Cannot change once there are expenses.">
@@ -83,15 +85,15 @@ export function NewGroupModal({ defaultCurrency, onClose, onCreated }: { default
         </Field>
         <Field group label="People" help="Add anyone by name; link people with an account so they see the group and their balance.">
           <div className="chips mb-sm">
-            {f.members.map((m, i) => <span key={i} className={`chip ${m.user_id ? 'active' : ''}`}>{m.name}{m.me && ' (you)'}{!m.me && <button type="button" className="chip-x" onClick={() => setF({ ...f, members: f.members.filter((_, j) => j !== i) })} aria-label={`Remove ${m.name}`}>✕</button>}</span>)}
+            {f.members.map((m, i) => <span key={i} className={`chip ${m.user_id ? 'active' : ''}`}>{m.name}{m.me && ' (you)'}{!m.me && <button type="button" className="chip-x" onClick={() => setF({ ...f, members: f.members.filter((_, j) => j !== i) })} aria-label={`Remove ${m.name}`}><Icon name="x" size={13} /></button>}</span>)}
           </div>
           <div className="row wrap">
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name…" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addName() } }} style={{ flex: '1 1 140px' }} aria-label="Member name" />
             <button type="button" className="btn" onClick={addName}>Add name</button>
-            {otherUsers.length > 0 && <Select className="user-add" value="" onChange={addUser} placeholder="+ Someone with an account…" options={otherUsers.map(u => ({ value: String(u.id), label: u.name || u.email, hint: u.email }))} ariaLabel="Add a user" />}
+            {otherUsers.length > 0 && <Select className="user-add" value="" onChange={addUser} placeholder="Someone with an account…" options={otherUsers.map(u => ({ value: String(u.id), label: u.name || u.email, hint: u.email }))} ariaLabel="Add a user" />}
           </div>
         </Field>
-        <div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || !f.name.trim()}>{busy ? 'Creating…' : 'Create group'}</button></div>
+        <div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" className="btn primary" disabled={busy || !f.name.trim()}>{busy ? 'Creating…' : 'Create group'}</button></div>
       </form>
     </Modal>
   )

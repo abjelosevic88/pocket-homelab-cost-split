@@ -8,6 +8,7 @@ import { Card, Empty, Field, Loading, PageHeader, Segmented, useAsync } from '..
 import { Money } from '../components/Money'
 import { MemberAvatar } from '../components/people'
 import { Select } from '../components/Select'
+import { Icon } from '../components/icons'
 
 interface Report {
   group: { id: number; name: string; currency: string }
@@ -70,7 +71,7 @@ export default function Reports() {
   const { data: rep, loading, error } = useAsync(() => groupId ? api.get<Report>(`${V1}/groups/${groupId}/report?${query}`) : Promise.resolve(null), [groupId, query])
 
   if (!groups) return <Loading />
-  if (groups.length === 0) return <><PageHeader title="Reports" /><Empty title="No groups yet"><Link to="/groups?new=1">Create a group</Link> first.</Empty></>
+  if (groups.length === 0) return <><PageHeader title="Reports" /><Empty icon="chart" title="No groups yet"><Link to="/groups?new=1">Create a group</Link> first.</Empty></>
   const cur = g?.currency || 'EUR'
   const maxCat = Math.max(1, ...(rep?.categories.map(c => c.total) || [1]))
   const maxMonth = Math.max(1, ...(rep?.months.map(m => m.total) || [1]))
@@ -79,7 +80,7 @@ export default function Reports() {
   return (
     <>
       <PageHeader title="Reports" sub="Pick a group and a slice of its expenses; the PDF is exactly what you see here."
-        actions={groupId && <a className="btn primary" href={`${V1}/groups/${groupId}/report.pdf?${query}`} download>Export PDF</a>} />
+        actions={groupId && <a className="btn primary" href={`${V1}/groups/${groupId}/report.pdf?${query}`} download><Icon name="download" size={15} />Export PDF</a>} />
       <Card className="mb">
         <div className="report-filters">
           <Field group label="Group"><Select value={groupId} onChange={setGroupId} options={groups.map(x => ({ value: String(x.id), label: x.name, hint: x.currency }))} ariaLabel="Group" /></Field>
@@ -93,15 +94,15 @@ export default function Reports() {
           <Field group label="Categories" help={cats.length ? `${cats.length} selected` : 'All categories. Click to narrow down.'}>
             <div className="chips">
               {categories.map(c => <button key={c.id} type="button" className={`chip sm ${cats.includes(c.id) ? 'active' : ''}`} onClick={() => toggleCat(c.id)}>{c.icon} {c.label}</button>)}
-              {cats.length > 0 && <button type="button" className="chip sm" onClick={() => setCats([])}>✕ Clear</button>}
+              {cats.length > 0 && <button type="button" className="chip sm ghost" onClick={() => setCats([])}><Icon name="x" size={12} />Clear</button>}
             </div>
           </Field>
-          <label className="row"><input type="checkbox" checked={payments} onChange={e => setPayments(e.target.checked)} style={{ width: 'auto' }} /> Include settle-up payments (they are never counted as spending)</label>
-          <label className="row"><input type="checkbox" checked={debts} onChange={e => setDebts(e.target.checked)} style={{ width: 'auto' }} /> Show who owes whom (the group's open debts as of today)</label>
+          <label className="check-row"><input type="checkbox" checked={payments} onChange={e => setPayments(e.target.checked)} /><span>Include settle-up payments (they are never counted as spending)</span></label>
+          <label className="check-row"><input type="checkbox" checked={debts} onChange={e => setDebts(e.target.checked)} /><span>Show who owes whom (the group's open debts as of today)</span></label>
         </div>
       </Card>
 
-      {error && <div className="callout danger mb">{error}</div>}
+      {error && <div className="callout danger mb"><Icon name="alert" size={15} /><span>{error}</span></div>}
       {loading && !rep ? <Loading /> : rep && (
         <>
           <p className="muted small mb-sm">{rep.group.name} · {rep.filter_text}{rep.first_date && ` · ${fmtDate(rep.first_date)} – ${fmtDate(rep.last_date)}`}</p>
@@ -117,7 +118,7 @@ export default function Reports() {
               <DebtList debts={rep.settlements} cur={cur} />
             </Card>
           )}
-          {rep.count === 0 && rep.expenses.length === 0 && rep.payments.length === 0 ? <Empty title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
+          {rep.count === 0 && rep.expenses.length === 0 && rep.payments.length === 0 ? <Empty icon="search" title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
             <>
               <div className={`two-col ${debts ? 'mt' : ''}`}>
                 <Card title="Per person" flush>
@@ -200,13 +201,13 @@ export default function Reports() {
 }
 
 function DebtList({ debts, cur }: { debts: Debt[]; cur: string }) {
-  if (debts.length === 0) return <p className="ok"><b>All settled — nobody owes anybody.</b></p>
+  if (debts.length === 0) return <p className="ok row"><Icon name="check-circle" size={16} /><b>All settled — nobody owes anybody.</b></p>
   return (
     <ul className="debt-list">
       {debts.map((d, i) => (
         <li key={i}>
           <MemberAvatar member={{ id: d.from, name: d.from_name }} /><b>{d.from_name}</b>
-          <span className="muted">owes</span>
+          <Icon name="arrow-right" size={14} className="muted" />
           <MemberAvatar member={{ id: d.to, name: d.to_name }} /><b>{d.to_name}</b>
           <span className="spacer" />
           <b className="amt"><Money minor={d.amount} code={cur} /></b>
