@@ -4,12 +4,14 @@ import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import type { Activity, Dashboard } from '../lib/types'
 import { ago, fmtDate } from '../lib/money'
-import { Card, Empty, Loading, Modal, PageHeader, useAsync } from '../components/ui'
+import { Card, Empty, Loading, PageHeader, useAsync } from '../components/ui'
+import { Icon } from '../components/icons'
+import { GroupIcon, GroupPicker } from '../components/people'
 import { Money } from '../components/Money'
 import { ActivityKind } from './Group'
 
 export default function Home() {
-  const { user } = useApp()
+  const { user, groups } = useApp()
   const navigate = useNavigate()
   const { data: d, loading } = useAsync(() => api.get<Dashboard>(`${V1}/dashboard`), [])
   const { data: act } = useAsync(() => api.get<Activity[]>(`${V1}/activity?limit=12`), [])
@@ -27,39 +29,29 @@ export default function Home() {
   return (
     <>
       <PageHeader title={`${hello}, ${user?.name?.split(' ')[0] || 'there'}`} sub={d.groups === 0 ? 'No groups yet. Create one for a trip, a flat or a dinner.' : `${d.groups} active ${d.groups === 1 ? 'group' : 'groups'}${d.archived_groups ? `, ${d.archived_groups} archived` : ''}`}
-        actions={<><button className="btn" onClick={() => navigate('/groups?new=1')}>+ New group</button><button className="btn primary" onClick={addExpense}>+ Add expense</button></>} />
-      {pick && (
-        <Modal title="Add an expense to…" onClose={() => setPick(false)}>
-          <div className="pick-list">
-            {d.group_lines.map(g => (
-              <button key={g.id} className="pick-row" onClick={() => navigate(`/groups/${g.id}/expenses/new`)}>
-                <span className="grow"><b>{g.name}</b><div className="muted small">{g.members} {g.members === 1 ? 'person' : 'people'} · {g.expenses} {g.expenses === 1 ? 'expense' : 'expenses'}</div></span>
-                <span className="badge cat">{g.currency}</span>
-              </button>
-            ))}
-          </div>
-        </Modal>
-      )}
+        actions={<><button type="button" className="btn" onClick={() => navigate('/groups?new=1')}><Icon name="user-plus" size={15} />New group</button><button type="button" className="btn primary" onClick={addExpense}><Icon name="plus" size={15} strokeWidth={2.2} />Add expense</button></>} />
+      {pick && <GroupPicker groups={groups} onClose={() => setPick(false)} />}
       <div className="stats">
-        <div className="stat"><div className="l">You owe</div><div className="n bad">{owe.length ? owe.map(p => <div key={p.currency}><Money minor={p.you_owe} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
-        <div className="stat"><div className="l">You are owed</div><div className="n ok">{owed.length ? owed.map(p => <div key={p.currency}><Money minor={p.you_are_owed} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
-        <div className="stat"><div className="l">Your share this month</div><div className="n">{d.spent_this_month.length ? d.spent_this_month.map(c => <div key={c.currency}><Money minor={c.total} code={c.currency} /></div>) : <span className="muted">—</span>}</div></div>
+        <div className="stat"><div className="l"><Icon name="arrow-up" size={14} />You owe</div><div className="n bad">{owe.length ? owe.map(p => <div key={p.currency}><Money minor={p.you_owe} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
+        <div className="stat"><div className="l"><Icon name="arrow-down" size={14} />You are owed</div><div className="n ok">{owed.length ? owed.map(p => <div key={p.currency}><Money minor={p.you_are_owed} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
+        <div className="stat"><div className="l"><Icon name="pie" size={14} />Your share this month</div><div className="n">{d.spent_this_month.length ? d.spent_this_month.map(c => <div key={c.currency}><Money minor={c.total} code={c.currency} /></div>) : <span className="muted">—</span>}</div></div>
       </div>
       <div className="two-col">
-        <Card title="Your groups" actions={<Link className="btn ghost sm" to="/groups">All groups →</Link>}>
-          {d.group_lines.length === 0 ? <Empty title="Nothing shared yet"><Link to="/groups?new=1">Create your first group</Link>.</Empty> : (
+        <Card title="Your groups" actions={<Link className="btn ghost sm" to="/groups">All groups<Icon name="arrow-right" size={14} /></Link>}>
+          {d.group_lines.length === 0 ? <Empty icon="users" title="Nothing shared yet"><Link to="/groups?new=1">Create your first group</Link>.</Empty> : (
             <ul className="mini-list">
               {d.group_lines.map(g => (
                 <li key={g.id} className="group-line">
                   <div className="row">
                   <Link to={`/groups/${g.id}`} className="row grow">
+                    <GroupIcon group={g} size={34} />
                     <span className="grow">
                       <b>{g.name}</b>
                       <div className="muted small">{g.members} {g.members === 1 ? 'person' : 'people'} · {g.expenses} {g.expenses === 1 ? 'expense' : 'expenses'} · <Money minor={g.total} code={g.currency} />{g.last_date && ` · last ${fmtDate(g.last_date, false)}`}</div>
                     </span>
                     <span className="right"><Money minor={g.balance} code={g.currency} sign /><div className="muted small">{g.balance > 0 ? 'you get back' : g.balance < 0 ? 'you owe' : 'settled'}</div></span>
                   </Link>
-                  <Link className="btn ghost sm add-inline" to={`/groups/${g.id}/expenses/new`} title={`Add an expense to ${g.name}`}>＋ Expense</Link>
+                  <Link className="btn ghost sm add-inline" to={`/groups/${g.id}/expenses/new`} title={`Add an expense to ${g.name}`} aria-label={`Add an expense to ${g.name}`}><Icon name="plus" size={15} /><span className="add-inline-label">Expense</span></Link>
                   </div>
                   {g.settlements.length > 0 && (
                     <ul className="who-owes">
@@ -76,7 +68,7 @@ export default function Home() {
           )}
         </Card>
         <Card title="Recent activity">
-          {!act || act.length === 0 ? <p className="muted">Nothing happened yet.</p> : (
+          {!act || act.length === 0 ? <Empty icon="activity" title="Nothing happened yet" /> : (
             <ul className="mini-list">
               {act.map(a => (
                 <li key={a.id}>

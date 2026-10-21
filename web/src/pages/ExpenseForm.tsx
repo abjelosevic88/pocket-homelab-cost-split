@@ -8,6 +8,7 @@ import { Card, Confirm, Empty, Field, Loading, PageHeader, Segmented, useAsync, 
 import { Money, MoneyInput, CurrencySelect } from '../components/Money'
 import { MemberAvatar } from '../components/people'
 import { Select } from '../components/Select'
+import { Icon } from '../components/icons'
 
 interface Row { member_id: number; on: boolean; share: number | null }
 
@@ -28,7 +29,7 @@ export default function ExpenseForm() {
   const { id, eid } = useParams()
   const navigate = useNavigate()
   const { toast } = useToast()
-  const { categories, currencies, settings, reloadMeta } = useApp()
+  const { categories, currencies, settings, reloadMeta, reloadGroups } = useApp()
   const { data: g } = useAsync(() => api.get<Group>(`${V1}/groups/${id}`), [id])
   const { data: existing, loading: loadingE } = useAsync(() => eid ? api.get<Expense>(`${V1}/groups/${id}/expenses/${eid}`) : Promise.resolve(null), [id, eid])
   const editing = Boolean(eid)
@@ -100,7 +101,7 @@ export default function ExpenseForm() {
   }, [amount, active, mode])
 
   if (!g || !ready) return <Loading />
-  if (editing && !existing) return <Empty title="Expense not found"><Link to={`/groups/${g.id}`}>Back to the group</Link></Empty>
+  if (editing && !existing) return <Empty icon="receipt" title="Expense not found"><Link to={`/groups/${g.id}`}>Back to the group</Link></Empty>
 
   const setRow = (id: number, p: Partial<Row>) => setRows(rs => rs.map(r => r.member_id === id ? { ...r, ...p } : r))
   const changeMode = (m: SplitMode) => {
@@ -125,7 +126,7 @@ export default function ExpenseForm() {
       shares: active.map(r => ({ member_id: r.member_id, share: mode === 'even' ? 1 : (r.share ?? 0) })) }
     try {
       if (editing) await api.put(`${V1}/groups/${g.id}/expenses/${eid}`, body); else await api.post(`${V1}/groups/${g.id}/expenses`, body)
-      toast(editing ? 'Saved' : 'Expense added'); navigate(`/groups/${g.id}`)
+      toast(editing ? 'Saved' : 'Expense added'); reloadGroups().catch(() => {}); navigate(`/groups/${g.id}`)
     } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) }
   }
   const remove = async () => { try { await api.del(`${V1}/groups/${g.id}/expenses/${eid}`); toast('Deleted'); navigate(`/groups/${g.id}`) } catch (e) { toast((e as Error).message, 'err') } }
@@ -134,12 +135,12 @@ export default function ExpenseForm() {
 
   return (
     <>
-      <PageHeader title={editing ? (reimb ? 'Payment' : 'Edit expense') : (reimb ? 'Record a payment' : 'New expense')} sub={<Link to={`/groups/${g.id}`}>← {g.name}</Link>}
-        actions={editing && <button className="btn ghost danger-text" onClick={() => setDel(true)}>Delete</button>} />
+      <PageHeader title={editing ? (reimb ? 'Payment' : 'Edit expense') : (reimb ? 'Record a payment' : 'New expense')} sub={<Link className="back-link" to={`/groups/${g.id}`}><Icon name="arrow-left" size={14} />{g.name}</Link>}
+        actions={editing && <button type="button" className="btn ghost danger-text" onClick={() => setDel(true)}><Icon name="trash" size={15} />Delete</button>} />
       <form onSubmit={submit} className="expense-form">
-        <Card title="What">
-          <div className="grid" style={{ gap: 14 }}>
-            <label className="row"><input type="checkbox" checked={reimb} onChange={e => toggleReimb(e.target.checked)} style={{ width: 'auto' }} /> This is a payment between two people (a reimbursement), not a shared cost</label>
+        <Card title={<><Icon name="receipt" size={16} />What</>}>
+          <div className="stack">
+            <label className="check-row"><input type="checkbox" checked={reimb} onChange={e => toggleReimb(e.target.checked)} /><span>This is a payment between two people (a reimbursement), not a shared cost</span></label>
             <Field label="Title"><input value={title} onChange={e => setTitle(e.target.value)} placeholder={reimb ? 'Reimbursement' : 'Dinner, taxi, groceries…'} autoFocus={!editing} required={!reimb} maxLength={120} /></Field>
             <Field group label="Amount" help={foreign ? undefined : 'Paid in another currency? Pick it on the left; it is converted at the day\u2019s rate.'}>
               <div className="amount-field">
@@ -151,7 +152,7 @@ export default function ExpenseForm() {
               <div className="fx-box">
                 <Field label={`Exchange rate · 1 ${currency} =`} help={rateBusy ? 'Looking the rate up…' : rateInfo?.source ? `From ${rateInfo.source}${rateInfo.date !== date ? ` for ${rateInfo.date}` : ''}. Change it if your bank charged differently.` : settings?.fx_enabled ? 'No rate found online — enter it by hand.' : 'Automatic lookups are off (Settings) — enter the rate by hand.'}>
                   <span className="row"><input inputMode="decimal" value={rate} onChange={e => { rateTouched.current = true; setRate(e.target.value); setRateInfo(null) }} placeholder="0.00" style={{ maxWidth: 160 }} aria-label="Exchange rate" /><span className="muted">{g.currency}</span>
-                    <button type="button" className="btn ghost sm" onClick={() => { rateTouched.current = false; setRate(''); setRateInfo(null); setCurrency(c => c) ; api.get<FxAnswer>(`${V1}/fx?from=${currency}&to=${g.currency}&date=${date}`).then(r => { setRate(String(r.rate)); setRateInfo({ source: r.source, date: r.date }) }).catch(e => toast((e as Error).message, 'err')) }} title="Look up again">↻</button></span>
+                    <button type="button" className="btn ghost sm" onClick={() => { rateTouched.current = false; setRate(''); setRateInfo(null); setCurrency(c => c) ; api.get<FxAnswer>(`${V1}/fx?from=${currency}&to=${g.currency}&date=${date}`).then(r => { setRate(String(r.rate)); setRateInfo({ source: r.source, date: r.date }) }).catch(e => toast((e as Error).message, 'err')) }} title="Look up again" aria-label="Look the rate up again"><Icon name="refresh" size={15} /></button></span>
                 </Field>
                 {amount != null && amountGroup != null && <div className="muted">= <b><Money minor={amountGroup} code={g.currency} /></b> counted in the group</div>}
               </div>
@@ -167,7 +168,7 @@ export default function ExpenseForm() {
             <Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={reimb ? 'Cash, bank transfer…' : 'Anything worth remembering'} /></Field>
           </div>
         </Card>
-        <Card title={reimb ? 'To whom' : 'For whom'}>
+        <Card title={<><Icon name="users" size={16} />{reimb ? 'To whom' : 'For whom'}</>}>
           {!reimb && (
             <div className="row wrap mb">
               <Segmented size="sm" value={mode} onChange={changeMode} options={(['even', 'shares', 'percent', 'amount'] as SplitMode[]).map(m => ({ value: m, label: SPLIT_LABEL[m] }))} />
@@ -183,7 +184,7 @@ export default function ExpenseForm() {
               const part = preview && i >= 0 ? preview.parts[i] : null
               return (
                 <label key={r.member_id} className={`split-row ${r.on ? 'on' : ''}`}>
-                  <input type={reimb ? 'radio' : 'checkbox'} name={reimb ? 'to' : undefined} checked={r.on} onChange={e => reimb ? setRows(rs => rs.map(x => ({ ...x, on: x.member_id === r.member_id }))) : setRow(r.member_id, { on: e.target.checked })} style={{ width: 'auto' }} />
+                  <input type={reimb ? 'radio' : 'checkbox'} name={reimb ? 'to' : undefined} checked={r.on} onChange={e => reimb ? setRows(rs => rs.map(x => ({ ...x, on: x.member_id === r.member_id }))) : setRow(r.member_id, { on: e.target.checked })} />
                   <MemberAvatar member={m} me={m.id === g.my_member_id} />
                   <span className="nm">{m.name}{m.id === g.my_member_id && <span className="muted"> (you)</span>}</span>
                   <span className="spacer" />
@@ -196,15 +197,15 @@ export default function ExpenseForm() {
               )
             })}
           </div>
-          {preview && !preview.ok && <div className="callout danger mt-sm">{mode === 'percent' ? `Percentages add up to ${fmtPct(active.reduce((a, r) => a + (r.share ?? 0), 0))} %, not 100.` : mode === 'amount' ? `The amounts add up to ${fmtMoney(active.reduce((a, r) => a + (r.share ?? 0), 0), currency, dExp)}, not ${fmtMoney(amount ?? 0, currency, dExp)}.` : 'Give at least one person a share.'}</div>}
-          {reimb && active.length === 1 && String(active[0].member_id) === paidBy && <div className="callout danger mt-sm">Pick someone other than the payer.</div>}
+          {preview && !preview.ok && <div className="callout danger mt-sm"><Icon name="alert" size={15} /><span>{mode === 'percent' ? `Percentages add up to ${fmtPct(active.reduce((a, r) => a + (r.share ?? 0), 0))} %, not 100.` : mode === 'amount' ? `The amounts add up to ${fmtMoney(active.reduce((a, r) => a + (r.share ?? 0), 0), currency, dExp)}, not ${fmtMoney(amount ?? 0, currency, dExp)}.` : 'Give at least one person a share.'}</span></div>}
+          {reimb && active.length === 1 && String(active[0].member_id) === paidBy && <div className="callout danger mt-sm"><Icon name="alert" size={15} /><span>Pick someone other than the payer.</span></div>}
           <div className="form-actions mt">
             <Link className="btn" to={`/groups/${g.id}`}>Cancel</Link>
-            <button className="btn primary lg" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save' : reimb ? 'Record payment' : 'Add expense'}</button>
+            <button type="submit" className="btn primary lg" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save' : reimb ? 'Record payment' : 'Add expense'}</button>
           </div>
         </Card>
       </form>
-      {del && <Confirm title="Delete this expense?" message="It disappears from the group and every balance is recomputed." onCancel={() => setDel(false)} onConfirm={remove} />}
+      {del && <Confirm confirmLabel="Delete" title="Delete this expense?" message="It disappears from the group and every balance is recomputed." onCancel={() => setDel(false)} onConfirm={remove} />}
     </>
   )
 }
