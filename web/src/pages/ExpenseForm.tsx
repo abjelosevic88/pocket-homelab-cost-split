@@ -43,7 +43,9 @@ export default function ExpenseForm() {
   const rateTouched = useRef(false)
   const [paidBy, setPaidBy] = useState('')
   const [date, setDate] = useState(todayISO())
-  const [category, setCategory] = useState('general')
+  // New expenses start in the fallback category (General unless it was removed).
+  const fallbackCat = categories.find(c => c.fallback)?.id || categories[0]?.id || ''
+  const [category, setCategory] = useState(fallbackCat)
   const [notes, setNotes] = useState('')
   const [mode, setMode] = useState<SplitMode>('even')
   const [reimb, setReimb] = useState(false)
@@ -57,7 +59,7 @@ export default function ExpenseForm() {
     if (!g || ready || (editing && loadingE)) return
     if (editing && existing) {
       setTitle(existing.title); setAmount(existing.amount); setCurrency(existing.currency); setRate(String(existing.fx_rate)); setPaidBy(String(existing.paid_by))
-      setDate(existing.date); setCategory(existing.category); setNotes(existing.notes); setMode(existing.split_mode); setReimb(existing.reimbursement)
+      setDate(existing.date); setCategory(existing.category || fallbackCat); setNotes(existing.notes); setMode(existing.split_mode); setReimb(existing.reimbursement)
       setRows(g.members.map(m => { const s = existing.shares.find(x => x.member_id === m.id); return { member_id: m.id, on: Boolean(s), share: s ? s.share : null } }))
       rateTouched.current = true
     } else if (!editing) {
@@ -122,7 +124,7 @@ export default function ExpenseForm() {
     if (active.length === 0) { toast('Pick who it was for', 'err'); return }
     if (preview && !preview.ok) { toast(mode === 'percent' ? 'Percentages must add up to 100' : mode === 'amount' ? 'The amounts must add up to the total' : 'Shares must be positive', 'err'); return }
     setBusy(true)
-    const body = { title, amount, currency, fx_rate: foreign ? rateNum : 1, paid_by: Number(paidBy), date, category, notes, split_mode: mode, reimbursement: reimb,
+    const body = { title, amount, currency, fx_rate: foreign ? rateNum : 1, paid_by: Number(paidBy), date, category: reimb ? '' : category, notes, split_mode: mode, reimbursement: reimb,
       shares: active.map(r => ({ member_id: r.member_id, share: mode === 'even' ? 1 : (r.share ?? 0) })) }
     try {
       if (editing) await api.put(`${V1}/groups/${g.id}/expenses/${eid}`, body); else await api.post(`${V1}/groups/${g.id}/expenses`, body)
@@ -161,10 +163,12 @@ export default function ExpenseForm() {
               <Field group label={reimb ? 'Paid by' : 'Who paid'}><Select value={paidBy} onChange={setPaidBy} options={memberOpts} ariaLabel="Paid by" /></Field>
               <Field label="Date"><input type="date" value={date} onChange={e => { setDate(e.target.value); if (!rateTouched.current) setRateInfo(null) }} required /></Field>
             </div>
-            <Field group label="Category" help={reimb ? 'What the payment was for, e.g. Rent & utilities. Type a name that is not in the list to add it.' : 'Type a name that is not in the list to add it.'}>
-              <Select value={category} onChange={setCategory} options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Category" createLabel="Add category"
-                onCreate={async label => { const c = await api.post<{ id: string }>(`${V1}/categories`, { label }); await reloadMeta(); return c.id }} />
-            </Field>
+            {!reimb && (
+              <Field group label="Category" help="Type a name that is not in the list to add it.">
+                <Select value={category} onChange={setCategory} options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Category" createLabel="Add category"
+                  onCreate={async label => { const c = await api.post<{ id: string }>(`${V1}/categories`, { label }); await reloadMeta(); return c.id }} />
+              </Field>
+            )}
             <Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={reimb ? 'Cash, bank transfer…' : 'Anything worth remembering'} /></Field>
           </div>
         </Card>

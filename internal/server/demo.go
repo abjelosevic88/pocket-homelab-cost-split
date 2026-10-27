@@ -81,7 +81,7 @@ func (s *Server) seedDemo(ctx context.Context) error {
 		s.store.LogActivity(ctx, store.Activity{GroupID: g.ID, UserID: uid, Kind: "expense.added", ExpenseID: e.ID, Summary: s.expenseSummaryFor(members, e)})
 	}
 	// One reimbursement so the feature shows.
-	re := &store.Expense{GroupID: g.ID, CreatedBy: uid, Title: "Reimbursement", Amount: 10000, Currency: "EUR", FxRate: 1, AmountGroup: 10000, PaidBy: jelena, Date: day(1), Category: "general", SplitMode: split.ModeEven, Reimbursement: true, Shares: []store.Share{{MemberID: marko, Share: 1}}}
+	re := &store.Expense{GroupID: g.ID, CreatedBy: uid, Title: "Reimbursement", Amount: 10000, Currency: "EUR", FxRate: 1, AmountGroup: 10000, PaidBy: jelena, Date: day(1), SplitMode: split.ModeEven, Reimbursement: true, Shares: []store.Share{{MemberID: marko, Share: 1}}}
 	if err := store.ComputeShares(re); err != nil {
 		return err
 	}

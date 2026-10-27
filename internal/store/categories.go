@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"regexp"
 	"strings"
@@ -34,6 +35,7 @@ func scanCategory(row interface{ Scan(...any) error }, userID int64) (*Category,
 // ListCategories returns the categories userID sees, in display order, with
 // how many of their visible expenses use each.
 func (s *Store) ListCategories(ctx context.Context, userID int64) ([]Category, error) {
+	fb := s.FallbackCategory(ctx) // before the query: the store has a single connection
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+categoryCols+` FROM categories c WHERE `+visibleCategory+` ORDER BY c.sort_order, c.label`,
 		userID, userID, userID, userID, userID)
 	if err != nil {
@@ -46,16 +48,36 @@ func (s *Store) ListCategories(ctx context.Context, userID int64) ([]Category, e
 		if err != nil {
 			return nil, err
 		}
+		c.Fallback = c.ID == fb
 		out = append(out, *c)
 	}
 	return out, rows.Err()
 }
 
+// FallbackCategory is where an expense without a category goes: the built-in
+// General, or once that is removed the first built-in category left. The last
+// built-in category cannot be removed, so there is always one.
+func (s *Store) FallbackCategory(ctx context.Context) string {
+	return fallbackCategory(ctx, s.DB, "")
+}
+
+func fallbackCategory(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, except string) string {
+	id := "general"
+	_ = q.QueryRowContext(ctx, `SELECT id FROM categories WHERE builtin = 1 AND id != ? ORDER BY id = 'general' DESC, sort_order, label LIMIT 1`, except).Scan(&id)
+	return id
+}
+
 // GetCategory loads a category userID may change: a built-in one or one of
 // their own. Anything else is ErrNotFound.
 func (s *Store) GetCategory(ctx context.Context, id string, userID int64) (*Category, error) {
-	return scanCategory(s.DB.QueryRowContext(ctx, `SELECT `+categoryCols+` FROM categories c WHERE c.id = ? AND (c.builtin = 1 OR c.user_id = ?)`,
+	c, err := scanCategory(s.DB.QueryRowContext(ctx, `SELECT `+categoryCols+` FROM categories c WHERE c.id = ? AND (c.builtin = 1 OR c.user_id = ?)`,
 		userID, userID, id, userID), userID)
+	if err == nil {
+		c.Fallback = c.ID == s.FallbackCategory(ctx)
+	}
+	return c, err
 }
 
 // CategoryExists reports whether id is a category userID may use.
@@ -115,17 +137,30 @@ func (s *Store) UpdateCategory(ctx context.Context, c *Category) error {
 	return err
 }
 
-// DeleteCategory removes a category; its expenses move to "general".
+// DeleteCategory removes a category; its expenses move to the fallback
+// category (General). The built-in General itself can go once no expense
+// uses it, and the last built-in category always stays (the fallback for
+// everyone on the box).
 func (s *Store) DeleteCategory(ctx context.Context, id string) error {
-	if id == "general" {
-		return fmt.Errorf("the General category cannot be removed")
-	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE expenses SET category = 'general' WHERE category = ?`, id); err != nil {
+	var builtin, others, used int
+	if err := tx.QueryRowContext(ctx, `SELECT builtin, (SELECT COUNT(1) FROM categories WHERE builtin = 1 AND id != ?), (SELECT COUNT(1) FROM expenses WHERE category = ?) FROM categories WHERE id = ?`, id, id, id).Scan(&builtin, &others, &used); err != nil {
+		return notFound(err)
+	}
+	if builtin == 1 && others == 0 {
+		return fmt.Errorf("the last built-in category cannot be removed: expenses without a category land there")
+	}
+	if builtin == 1 && id == "general" && used > 0 {
+		if used == 1 {
+			return fmt.Errorf("General is still used by 1 expense; move it to another category first")
+		}
+		return fmt.Errorf("General is still used by %d expenses; move them to another category first", used)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE expenses SET category = ? WHERE category = ?`, fallbackCategory(ctx, tx, id), id); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM categories WHERE id = ?`, id)

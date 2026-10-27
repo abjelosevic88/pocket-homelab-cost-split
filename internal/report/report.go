@@ -22,12 +22,11 @@ var fontFS embed.FS
 
 // Filter describes what went into the report (shown on the page and the PDF).
 type Filter struct {
-	From           string   `json:"from"`
-	To             string   `json:"to"`
-	Categories     []string `json:"categories"`
-	MemberID       int64    `json:"member_id"`
-	Reimbursements string   `json:"reimbursements"` // exclude | include
-	Debts          bool     `json:"debts"`          // show who owes whom
+	From       string   `json:"from"`
+	To         string   `json:"to"`
+	Categories []string `json:"categories"`
+	MemberID   int64    `json:"member_id"`
+	Debts      bool     `json:"debts"` // show who owes whom
 }
 
 // Report is the result.
@@ -37,10 +36,9 @@ type Report struct {
 	FilterText  string        `json:"filter_text"`
 	GeneratedAt string        `json:"generated_at"`
 	GeneratedBy string        `json:"generated_by"`
-	Total       int64         `json:"total"`      // spent, reimbursements excluded
-	Reimbursed  int64         `json:"reimbursed"` // settle-up payments in the selection
-	Count       int           `json:"count"`      // expenses (not reimbursements)
-	PerHead     int64         `json:"per_head"`   // total / people in the selection
+	Total       int64         `json:"total"`    // spent; settle-up payments are never in a report
+	Count       int           `json:"count"`    // expenses
+	PerHead     int64         `json:"per_head"` // total / people in the selection
 	FirstDate   string        `json:"first_date"`
 	LastDate    string        `json:"last_date"`
 	Members     []MemberRow   `json:"members"`
@@ -48,9 +46,6 @@ type Report struct {
 	Months      []MonthRow    `json:"months"`
 	Expenses    []ExpenseRow  `json:"expenses"`
 	Currencies  []CurrencyRow `json:"currencies"`
-	// Payments are the settle-up payments in the selection (only when the
-	// filter includes them); Expenses holds the shared costs only.
-	Payments []ExpenseRow `json:"payments"`
 	// Settlements are the group's real open debts as of now (every expense and
 	// payment, regardless of the filter).
 	Settlements []Debt           `json:"settlements"`
@@ -119,7 +114,6 @@ type ExpenseRow struct {
 	Amount        int64  `json:"amount"`
 	Currency      string `json:"currency"`
 	AmountGroup   int64  `json:"amount_group"`
-	Reimbursement bool   `json:"reimbursement"`
 	For           string `json:"for"` // "everyone" / "Ana, Marko"
 	Notes         string `json:"notes"`
 }
@@ -128,7 +122,7 @@ type ExpenseRow struct {
 // current balances over everything (for the "who owes whom" section).
 func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balances []split.Balance, f Filter, by string) *Report {
 	r := &Report{Group: GroupInfo{ID: g.ID, Name: g.Name, Currency: g.Currency}, Filter: f, GeneratedAt: time.Now().Format("2006-01-02 15:04"), GeneratedBy: by,
-		Members: []MemberRow{}, Categories: []CategoryRow{}, Months: []MonthRow{}, Expenses: []ExpenseRow{}, Currencies: []CurrencyRow{}, Payments: []ExpenseRow{}, Settlements: []Debt{}, MemberNames: map[int64]string{}}
+		Members: []MemberRow{}, Categories: []CategoryRow{}, Months: []MonthRow{}, Expenses: []ExpenseRow{}, Currencies: []CurrencyRow{}, Settlements: []Debt{}, MemberNames: map[int64]string{}}
 	r.Filtered = f.From != "" || f.To != "" || len(f.Categories) > 0 || f.MemberID != 0
 	catLabel, catIcon := map[string]string{}, map[string]string{}
 	for _, c := range cats {
@@ -141,6 +135,11 @@ func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balance
 	}
 	catRows, monthRows, curRows := map[string]*CategoryRow{}, map[string]*MonthRow{}, map[string]*CurrencyRow{}
 	for _, e := range exps {
+		// Settle-ups move money between people; they are not spending, so a
+		// report leaves them out entirely (the debts section still counts them).
+		if e.Reimbursement {
+			continue
+		}
 		if r.FirstDate == "" || e.Date < r.FirstDate {
 			r.FirstDate = e.Date
 		}
@@ -155,29 +154,8 @@ func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balance
 		if len(e.Shares) == len(g.Members) && len(g.Members) > 1 {
 			forText = "everyone"
 		}
-		row := ExpenseRow{ID: e.ID, Date: e.Date, Title: e.Title, Category: e.Category, CategoryLabel: catLabel[e.Category], PaidBy: r.MemberNames[e.PaidBy], Amount: e.Amount, Currency: e.Currency, AmountGroup: e.AmountGroup, Reimbursement: e.Reimbursement, For: forText, Notes: e.Notes}
-		if e.Reimbursement {
-			if e.Title == "Reimbursement" {
-				row.Title = ""
-			}
-			r.Payments = append(r.Payments, row)
-		} else {
-			r.Expenses = append(r.Expenses, row)
-		}
-		if e.Reimbursement {
-			r.Reimbursed += e.AmountGroup
-			if m := memRows[e.PaidBy]; m != nil {
-				m.Paid += e.AmountGroup
-				m.Net += e.AmountGroup
-			}
-			for _, sh := range e.Shares {
-				if m := memRows[sh.MemberID]; m != nil {
-					m.Share += sh.AmountGroup
-					m.Net -= sh.AmountGroup
-				}
-			}
-			continue
-		}
+		row := ExpenseRow{ID: e.ID, Date: e.Date, Title: e.Title, Category: e.Category, CategoryLabel: catLabel[e.Category], PaidBy: r.MemberNames[e.PaidBy], Amount: e.Amount, Currency: e.Currency, AmountGroup: e.AmountGroup, For: forText, Notes: e.Notes}
+		r.Expenses = append(r.Expenses, row)
 		r.Total += e.AmountGroup
 		r.Count++
 		if m := memRows[e.PaidBy]; m != nil {
@@ -277,9 +255,6 @@ func describe(f Filter, r *Report, catLabel map[string]string) string {
 	if f.MemberID != 0 {
 		parts = append(parts, "involving "+r.MemberNames[f.MemberID])
 	}
-	if f.Reimbursements == "include" {
-		parts = append(parts, "payments included")
-	}
 	return strings.Join(parts, " · ")
 }
 
@@ -351,9 +326,8 @@ func PDF(r *Report, appTitle string) ([]byte, error) {
 		{"Total spent", Money(r.Total, cur)},
 		{"Expenses", fmt.Sprint(r.Count)},
 		{"Per person", Money(r.PerHead, cur)},
-		{"Payments", Money(r.Reimbursed, cur)},
 	}
-	tw := (usable - 3*4) / 4
+	tw := (usable - 2*4) / 3
 	x0 := pdf.GetX()
 	y0 := pdf.GetY()
 	for i, t := range tiles {
@@ -506,27 +480,6 @@ func PDF(r *Report, appTitle string) ([]byte, error) {
 			rows = append(rows, []string{e.Date, title, e.CategoryLabel, e.PaidBy, e.For, amt})
 		}
 		table([]string{"Date", "Expense", "Category", "Paid by", "For", "Amount"}, []float64{22, usable - 22 - 26 - 19 - 24 - amtW, 26, 19, 24, amtW}, []string{"L", "L", "L", "L", "L", "R"}, rows, false)
-	}
-
-	// Payments, apart from the shared costs
-	if len(r.Payments) > 0 {
-		header(fmt.Sprintf("Payments (%d)", len(r.Payments)))
-		pdf.SetFont("dv", "", 8)
-		pdf.SetTextColor(107, 114, 128)
-		pdf.MultiCell(0, 4.2, "Money handed from one person to another to settle up. Not counted as spending.", "", "L", false)
-		pdf.Ln(1.5)
-		rows = nil
-		amtW := 30.0
-		for _, e := range r.Payments {
-			amt := Money(e.AmountGroup, cur)
-			if e.Currency != cur {
-				amt = Money(e.Amount, e.Currency) + " = " + amt
-				amtW = 46
-			}
-			note := strings.TrimSpace(strings.Join([]string{e.Title, e.Notes}, " "))
-			rows = append(rows, []string{e.Date, e.PaidBy, e.For, e.CategoryLabel, note, amt})
-		}
-		table([]string{"Date", "From", "To", "Category", "Note", "Amount"}, []float64{22, 30, 30, 30, usable - 22 - 30 - 30 - 30 - amtW, amtW}, []string{"L", "L", "L", "L", "L", "R"}, rows, false)
 	}
 
 	// Currencies

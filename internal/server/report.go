@@ -15,11 +15,12 @@ import (
 //	from, to       YYYY-MM-DD (inclusive)
 //	categories     comma-separated ids
 //	member         member id (paid by or shares)
-//	reimbursements include | exclude (default)
+//
+// Settle-up payments are never part of a report.
 func (s *Server) buildReport(r *http.Request) (*report.Report, error) {
 	g := groupFrom(r.Context())
 	q := r.URL.Query()
-	f := report.Filter{From: q.Get("from"), To: q.Get("to"), MemberID: queryInt(r, "member"), Reimbursements: "exclude"}
+	f := report.Filter{From: q.Get("from"), To: q.Get("to"), MemberID: queryInt(r, "member")}
 	if f.From != "" && !validDate(f.From) || f.To != "" && !validDate(f.To) {
 		return nil, fmt.Errorf("dates must be YYYY-MM-DD")
 	}
@@ -28,11 +29,8 @@ func (s *Server) buildReport(r *http.Request) (*report.Report, error) {
 			f.Categories = append(f.Categories, c)
 		}
 	}
-	if q.Get("reimbursements") == "include" {
-		f.Reimbursements = "include"
-	}
 	f.Debts = queryBool(r, "debts")
-	exps, _, err := s.store.ListExpenses(r.Context(), store.ExpenseFilter{GroupID: g.ID, From: f.From, To: f.To, Categories: f.Categories, MemberID: f.MemberID, Reimbursements: map[string]string{"include": "", "exclude": "exclude"}[f.Reimbursements]})
+	exps, _, err := s.store.ListExpenses(r.Context(), store.ExpenseFilter{GroupID: g.ID, From: f.From, To: f.To, Categories: f.Categories, MemberID: f.MemberID, Reimbursements: "exclude"})
 	if err != nil {
 		return nil, err
 	}

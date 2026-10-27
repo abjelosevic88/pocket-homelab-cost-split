@@ -229,8 +229,10 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 			skipped++
 			continue
 		}
-		if !s.store.CategoryExists(r.Context(), e.Category, u.ID) {
-			e.Category = "general"
+		if e.Reimbursement {
+			e.Category = ""
+		} else if !s.store.CategoryExists(r.Context(), e.Category, u.ID) {
+			e.Category = s.store.FallbackCategory(r.Context())
 		}
 		ok := true
 		for _, sh := range old.Shares {

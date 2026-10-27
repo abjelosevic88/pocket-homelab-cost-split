@@ -134,4 +134,7 @@ type Category struct {
 	SortOrder int    `json:"sort_order"`
 	Mine      bool   `json:"mine"`  // a custom category the viewer created (and may change)
 	Count     int    `json:"count"` // the viewer's visible expenses using it
+	// Fallback marks the category expenses without one land in (General, or
+	// the first built-in one once General is removed).
+	Fallback bool `json:"fallback"`
 }

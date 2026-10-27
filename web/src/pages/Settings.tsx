@@ -333,6 +333,9 @@ function Categories() {
   const [draft, setDraft] = useState<Record<string, { label: string; icon: string }>>({})
   const [add, setAdd] = useState({ label: '', icon: '' })
   const [del, setDel] = useState<Category | null>(null)
+  const fallbackLabel = categories.find(c => c.fallback)?.label || 'General'
+  // The fallback (General) can go once nothing uses it and another built-in category is left to take over.
+  const canDelete = (c: Category) => !c.fallback || (c.count === 0 && categories.some(o => o.builtin && o.id !== c.id))
   const [busy, setBusy] = useState(false)
   const run = async (fn: () => Promise<unknown>, msg: string) => { setBusy(true); try { await fn(); await reloadMeta(); toast(msg) } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) } }
   const d = (c: Category) => draft[c.id] || { label: c.label, icon: c.icon }
@@ -348,7 +351,7 @@ function Categories() {
   const create = (e: React.FormEvent) => { e.preventDefault(); if (!add.label.trim()) return; run(async () => { await api.post(`${V1}/categories`, add); setAdd({ label: '', icon: '' }) }, 'Category added') }
   return (
     <div className="stack loose">
-      <Section title="Categories" sub={<>Add your own here or straight from the expense form by typing a name that is not in the list; they are yours (others see one only where it is used in a group they share with you). Rename, reorder or remove your own here; expenses of a removed category move to General. {isAdmin ? 'As an admin you also edit the built-in ones, for everyone.' : 'The built-in ones are set by an admin.'}</>}>
+      <Section title="Categories" sub={<>Add your own here or straight from the expense form by typing a name that is not in the list; they are yours (others see one only where it is used in a group they share with you). Rename, reorder or remove your own here; expenses of a removed category move to {fallbackLabel}. {isAdmin ? 'As an admin you also edit the built-in ones, for everyone.' : 'The built-in ones are set by an admin.'}</>}>
         <div className="cat-list">
           {categories.map((c, i) => (
             <div key={c.id} className="cat-row">
@@ -360,7 +363,7 @@ function Categories() {
                   {changed(c) && <button type="button" className="btn primary sm" onClick={() => save(c)} disabled={busy}>Save</button>}
                   <button type="button" className="btn ghost icon-only sm" onClick={() => move(c, -1)} disabled={busy || i === 0 || !canEdit(categories[i - 1])} title="Move up" aria-label={`Move ${c.label} up`}><Icon name="arrow-up" size={15} /></button>
                   <button type="button" className="btn ghost icon-only sm" onClick={() => move(c, 1)} disabled={busy || i === categories.length - 1 || !canEdit(categories[i + 1])} title="Move down" aria-label={`Move ${c.label} down`}><Icon name="arrow-down" size={15} /></button>
-                  {c.id !== 'general' && <button type="button" className="btn ghost icon-only sm danger-text" onClick={() => setDel(c)} disabled={busy} title="Remove" aria-label={`Remove ${c.label}`}><Icon name="trash" size={15} /></button>}
+                  {canDelete(c) && <button type="button" className="btn ghost icon-only sm danger-text" onClick={() => setDel(c)} disabled={busy} title="Remove" aria-label={`Remove ${c.label}`}><Icon name="trash" size={15} /></button>}
                 </>}
               </span>
             </div>
@@ -374,7 +377,7 @@ function Categories() {
           <button type="submit" className="btn primary" disabled={busy || !add.label.trim()}><Icon name="plus" size={15} />Add</button>
         </form>
       </Section>
-      {del && <Confirm title={`Remove “${del.label}”?`} message={`${del.count} ${del.count === 1 ? 'expense moves' : 'expenses move'} to General. The category is gone from every group that used it.`} confirmLabel="Remove" onCancel={() => setDel(null)} onConfirm={() => { const c = del; setDel(null); run(() => api.del(`${V1}/categories/${c.id}`), 'Category removed') }} />}
+      {del && <Confirm title={`Remove “${del.label}”?`} message={del.fallback ? 'Nothing uses it. New expenses will start in the next built-in category instead.' : `${del.count} ${del.count === 1 ? 'expense moves' : 'expenses move'} to ${fallbackLabel}. The category is gone from every group that used it.`} confirmLabel="Remove" onCancel={() => setDel(null)} onConfirm={() => { const c = del; setDel(null); run(() => api.del(`${V1}/categories/${c.id}`), 'Category removed') }} />}
     </div>
   )
 }
