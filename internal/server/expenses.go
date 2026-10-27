@@ -86,11 +86,16 @@ func (s *Server) buildExpense(ctx context.Context, g *store.Group, in expenseInp
 	if !validDate(in.Date) {
 		return errors.New("date must be YYYY-MM-DD")
 	}
-	if in.Category == "" {
-		in.Category = "general"
-	}
-	if !s.store.CategoryExists(ctx, in.Category, actorID(ctx)) {
-		return errors.New("unknown category " + in.Category)
+	// A payment just moves money between two people; it has no category.
+	if in.Reimbursement {
+		in.Category = ""
+	} else {
+		if in.Category == "" {
+			in.Category = s.store.FallbackCategory(ctx)
+		}
+		if !s.store.CategoryExists(ctx, in.Category, actorID(ctx)) {
+			return errors.New("unknown category " + in.Category)
+		}
 	}
 	if in.SplitMode == "" {
 		in.SplitMode = split.ModeEven

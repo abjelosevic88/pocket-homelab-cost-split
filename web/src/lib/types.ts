@@ -2,7 +2,7 @@ export interface User { id: number; email: string; name: string; role: 'admin' |
 export interface APIToken { id: number; name: string; prefix: string; last_used_at: string | null; created_at: string }
 
 export interface Currency { code: string; name: string; decimals: number }
-export interface Category { id: string; label: string; icon: string; builtin: boolean; sort_order: number; mine: boolean; count: number }
+export interface Category { id: string; label: string; icon: string; builtin: boolean; sort_order: number; mine: boolean; count: number; fallback: boolean }
 
 export interface Member { id: number; group_id: number; user_id: number | null; name: string; created_at: string }
 

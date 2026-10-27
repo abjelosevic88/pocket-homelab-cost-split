@@ -79,7 +79,7 @@ func TestBalancesAddUpAndSettle(t *testing.T) {
 	}
 	// A reimbursement from Jelena to Ana closes her side.
 	j := byID[m[2].ID].Balance
-	re := &Expense{GroupID: g.ID, Title: "Reimbursement", Amount: -j, Currency: "EUR", FxRate: 1, AmountGroup: -j, PaidBy: m[2].ID, Date: "2026-10-04", Category: "general", SplitMode: split.ModeEven, Reimbursement: true, Shares: []Share{{MemberID: m[0].ID}}}
+	re := &Expense{GroupID: g.ID, Title: "Reimbursement", Amount: -j, Currency: "EUR", FxRate: 1, AmountGroup: -j, PaidBy: m[2].ID, Date: "2026-10-04", SplitMode: split.ModeEven, Reimbursement: true, Shares: []Share{{MemberID: m[0].ID}}}
 	if err := ComputeShares(re); err != nil {
 		t.Fatal(err)
 	}
@@ -150,5 +150,49 @@ func TestComputeSharesModes(t *testing.T) {
 	e = &Expense{Amount: 1000, AmountGroup: 1000, SplitMode: "weird", Shares: []Share{{MemberID: 1}}}
 	if err := ComputeShares(e); err == nil {
 		t.Fatal("unknown mode accepted")
+	}
+}
+
+func TestDeleteGeneralCategory(t *testing.T) {
+	s, g, m := openTest(t)
+	ctx := context.Background()
+	e := &Expense{GroupID: g.ID, Title: "Misc", Amount: 1000, Currency: "EUR", FxRate: 1, AmountGroup: 1000, PaidBy: m[0].ID, Date: "2026-10-01", Category: "general", SplitMode: split.ModeEven, Shares: []Share{{MemberID: m[0].ID}, {MemberID: m[1].ID}}}
+	if err := ComputeShares(e); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveExpense(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	// In use: General stays.
+	if err := s.DeleteCategory(ctx, "general"); err == nil {
+		t.Fatal("deleted General while an expense uses it")
+	}
+	// Unused: it goes, and the next built-in category takes over as the fallback.
+	e.Category = "groceries"
+	if err := s.SaveExpense(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteCategory(ctx, "general"); err != nil {
+		t.Fatal(err)
+	}
+	if fb := s.FallbackCategory(ctx); fb != "groceries" {
+		t.Fatalf("fallback after General is gone: %q", fb)
+	}
+	// A removed category's expenses move to the fallback that is left.
+	if err := s.DeleteCategory(ctx, "groceries"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetExpense(ctx, g.ID, e.ID)
+	if got.Category != "restaurant" {
+		t.Fatalf("expense moved to %q, want restaurant", got.Category)
+	}
+	// The last built-in category always stays.
+	for _, id := range []string{"restaurant", "drinks", "transport", "fuel", "accommodation", "entertainment", "shopping", "health", "utilities", "gifts", "travel"} {
+		if err := s.DeleteCategory(ctx, id); err != nil {
+			t.Fatal(id, err)
+		}
+	}
+	if err := s.DeleteCategory(ctx, "other"); err == nil {
+		t.Fatal("deleted the last built-in category")
 	}
 }

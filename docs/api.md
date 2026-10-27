@@ -31,7 +31,7 @@ An expense added over a link has `"source": "<app slug>"` (empty for people), an
 | `GET` | `/groups/{id}/stats` | Totals by month, category, member and currency (see below). |
 | `GET` | `/groups/{id}/activity` | Newest first, `limit=` (default 50). |
 | `GET` | `/groups/{id}/export.json` · `export.csv` | Full export; CSV has one column per person with their part in the group currency. |
-| `GET` | `/groups/{id}/report` | Filtered summary: who owes whom (`settlements`, the whole group as of now), totals, per person, by category, by month, `expenses` and `payments` lists, currencies. Filters: `from=`, `to=` (YYYY-MM-DD), `categories=a,b`, `member=` (paid or shared), `reimbursements=include` (default: excluded), `debts=1` to add the who-owes-whom section. |
+| `GET` | `/groups/{id}/report` | Filtered summary: who owes whom (`settlements`, the whole group as of now), totals, per person, by category, by month, the `expenses` list, currencies. Settle-up payments are never part of a report (only the debts section counts them). Filters: `from=`, `to=` (YYYY-MM-DD), `categories=a,b`, `member=` (paid or shared), `debts=1` to add the who-owes-whom section. |
 | `GET` | `/groups/{id}/report.pdf` | The same report as an A4 PDF (same filters). |
 | `POST` | `/import` | Body = an `export.json`. Creates a new group "(imported)" with its people and expenses at the stored rates. |
 
@@ -61,7 +61,7 @@ An expense added over a link has `"source": "<app slug>"` (empty for people), an
   "fx_rate": 1,                    // 1 unit of currency in group currency; omit to look it up for "date"
   "paid_by": 2,                    // member id
   "date": "2026-10-04",            // default: today
-  "category": "restaurant",        // a category id, see GET /categories; default "general"
+  "category": "restaurant",        // a category id, see GET /categories; default the fallback (General). Always "" on a reimbursement
   "notes": "Marko had the lobster",
   "split_mode": "amount",          // even (default) | shares | percent | amount
   "reimbursement": false,          // true = a payment from paid_by to the single sharer
@@ -82,9 +82,9 @@ The answer carries the computed parts: each share's `amount` (expense currency) 
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/currencies` | `[{"code": "EUR", "name": "Euro", "decimals": 2}, …]` — the ISO 4217 list. |
-| `GET` | `/categories` | `[{"id": "restaurant", "label": "Restaurants & cafés", "icon": "🍽️", "builtin": true, "sort_order": 3, "count": 12}, …]` |
+| `GET` | `/categories` | `[{"id": "restaurant", "label": "Restaurants & cafés", "icon": "🍽️", "builtin": true, "sort_order": 3, "count": 12, "fallback": false}, …]`; `fallback` marks where expenses without a category land (General) |
 | `POST` | `/categories` | `{"label": "Ski passes", "icon": "🎿"}` → the category (id is a slug of the label). A label or slug that already exists returns the existing one. Any user. |
-| `PUT` · `DELETE` | `/categories/{id}` | Your own category, or a built-in one if you are an admin. `{"label", "icon", "sort_order"}` / remove (its expenses move to `general`, which cannot be removed). `GET /categories` lists the built-in ones, yours (`"mine": true`) and any used in a group you share. |
+| `PUT` · `DELETE` | `/categories/{id}` | Your own category, or a built-in one if you are an admin. `{"label", "icon", "sort_order"}` / remove (its expenses move to the fallback category). The built-in General can be removed once no expense uses it, and then the first built-in category left becomes the fallback; the last built-in category cannot be removed. `GET /categories` lists the built-in ones, yours (`"mine": true`) and any used in a group you share. |
 | `GET` | `/fx?from=USD&to=EUR&date=2026-10-01` | `{"rate": 0.9218, "source": "frankfurter", "date", "example": "92.18 EUR"}`. Cached per pair and day. `502` when no provider knows the pair (or lookups are off). |
 
 ## Home & activity

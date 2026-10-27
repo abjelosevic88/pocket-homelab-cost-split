@@ -14,13 +14,12 @@ interface Report {
   group: { id: number; name: string; currency: string }
   filter_text: string
   generated_at: string
-  total: number; reimbursed: number; count: number; per_head: number; first_date: string; last_date: string
+  total: number; count: number; per_head: number; first_date: string; last_date: string
   members: { member_id: number; name: string; paid: number; share: number; net: number; count: number }[]
   categories: { id: string; label: string; icon: string; total: number; count: number; percent: number }[]
   months: { month: string; total: number; count: number }[]
-  expenses: { id: number; date: string; title: string; category: string; category_label: string; paid_by: string; amount: number; currency: string; amount_group: number; reimbursement: boolean; for: string; notes: string }[]
+  expenses: { id: number; date: string; title: string; category: string; category_label: string; paid_by: string; amount: number; currency: string; amount_group: number; for: string; notes: string }[]
   currencies: { currency: string; total: number; count: number }[]
-  payments: Report['expenses']
   settlements: Debt[]
   filtered: boolean
 }
@@ -49,7 +48,6 @@ export default function Reports() {
   const [to, setTo] = useState('')
   const [cats, setCats] = useState<string[]>([])
   const [member, setMember] = useState('')
-  const [payments, setPayments] = useState(false)
   const [debts, setDebts] = useState(false)
 
   useEffect(() => { if (groups && !groupId && groups.length) setGroupId(String(groups[0].id)) }, [groups, groupId])
@@ -64,10 +62,9 @@ export default function Reports() {
     if (to) q.set('to', to)
     if (cats.length) q.set('categories', cats.join(','))
     if (member) q.set('member', member)
-    if (payments) q.set('reimbursements', 'include')
     if (debts) q.set('debts', '1')
     return q.toString()
-  }, [from, to, cats, member, payments, debts])
+  }, [from, to, cats, member, debts])
   const { data: rep, loading, error } = useAsync(() => groupId ? api.get<Report>(`${V1}/groups/${groupId}/report?${query}`) : Promise.resolve(null), [groupId, query])
 
   if (!groups) return <Loading />
@@ -97,7 +94,6 @@ export default function Reports() {
               {cats.length > 0 && <button type="button" className="chip sm ghost" onClick={() => setCats([])}><Icon name="x" size={12} />Clear</button>}
             </div>
           </Field>
-          <label className="check-row"><input type="checkbox" checked={payments} onChange={e => setPayments(e.target.checked)} /><span>Include settle-up payments (they are never counted as spending)</span></label>
           <label className="check-row"><input type="checkbox" checked={debts} onChange={e => setDebts(e.target.checked)} /><span>Show who owes whom (the group's open debts as of today)</span></label>
         </div>
       </Card>
@@ -110,7 +106,6 @@ export default function Reports() {
             <div className="stat"><div className="n"><Money minor={rep.total} code={cur} /></div><div className="l">Total spent · {rep.count} {rep.count === 1 ? 'expense' : 'expenses'}</div></div>
             <div className="stat"><div className="n"><Money minor={rep.per_head} code={cur} /></div><div className="l">Per person, split evenly</div></div>
             <div className="stat"><div className="n">{rep.categories.length}</div><div className="l">{rep.categories.length === 1 ? 'Category' : 'Categories'}</div></div>
-            <div className="stat"><div className="n"><Money minor={rep.reimbursed} code={cur} /></div><div className="l">Settle-up payments{!payments && ' (not shown)'}</div></div>
           </div>
           {debts && (
             <Card title="Who owes whom" className="owes-card">
@@ -118,7 +113,7 @@ export default function Reports() {
               <DebtList debts={rep.settlements} cur={cur} />
             </Card>
           )}
-          {rep.count === 0 && rep.expenses.length === 0 && rep.payments.length === 0 ? <Empty icon="search" title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
+          {rep.count === 0 ? <Empty icon="search" title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (
             <>
               <div className={`two-col ${debts ? 'mt' : ''}`}>
                 <Card title="Per person" flush>
@@ -166,26 +161,6 @@ export default function Reports() {
                   </tbody>
                 </table>
               </Card>
-              {rep.payments.length > 0 && (
-                <Card title={`Payments (${rep.payments.length})`} className="mt" flush>
-                  <p className="muted small" style={{ padding: '12px 16px 0' }}>Money handed from one person to another to settle up. Not counted as spending.</p>
-                  <table className="table compact report-table">
-                    <thead><tr><th>Date</th><th>From</th><th>To</th><th>Category</th><th>Note</th><th className="right">Amount</th></tr></thead>
-                    <tbody>
-                      {rep.payments.map(e => (
-                        <tr key={e.id}>
-                          <td className="muted" style={{ whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</td>
-                          <td>{e.paid_by}</td>
-                          <td>{e.for}</td>
-                          <td className="muted">{e.category_label}</td>
-                          <td className="muted"><Link to={`/groups/${rep.group.id}/expenses/${e.id}`}>{[e.title, e.notes].filter(Boolean).join(' · ') || 'open'}</Link></td>
-                          <td className="right" style={{ whiteSpace: 'nowrap' }}><Money minor={e.amount_group} code={cur} />{e.currency !== cur && <div className="muted small"><Money minor={e.amount} code={e.currency} /></div>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Card>
-              )}
               {rep.currencies.length > 1 && (
                 <Card title="Currencies used" className="mt">
                   <table className="table compact"><thead><tr><th>Currency</th><th>Expenses</th><th className="right">Paid</th></tr></thead>
