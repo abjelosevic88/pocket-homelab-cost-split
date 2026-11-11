@@ -102,6 +102,8 @@ type Export struct {
 	ExportedAt string           `json:"exported_at"`
 	Group      store.Group      `json:"group"`
 	Expenses   []*store.Expense `json:"expenses"`
+	// Categories are the group's own (the built-in ones exist everywhere).
+	Categories []store.Category `json:"categories"`
 }
 
 func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
@@ -111,8 +113,19 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err, "export")
 		return
 	}
+	cats, err := s.store.ListCategories(r.Context(), userFrom(r.Context()).ID, g.ID)
+	if err != nil {
+		s.fail(w, err, "export")
+		return
+	}
+	own := []store.Category{}
+	for _, c := range cats {
+		if !c.Builtin {
+			own = append(own, c)
+		}
+	}
 	w.Header().Set("Content-Disposition", `attachment; filename="`+safeName(g.Name)+`.json"`)
-	writeJSON(w, http.StatusOK, Export{Version: Version, ExportedAt: store.Now(), Group: *g, Expenses: list})
+	writeJSON(w, http.StatusOK, Export{Version: Version, ExportedAt: store.Now(), Group: *g, Expenses: list, Categories: own})
 }
 
 func safeName(n string) string {
@@ -200,8 +213,10 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 	var members []store.Member
 	hasMe := false
 	for _, m := range ex.Group.Members {
-		mm := store.Member{Name: m.Name}
-		if m.ID == ex.Group.MyMemberID && !hasMe {
+		mm := store.Member{Name: m.Name, Kind: store.KindPerson}
+		if m.Kind == store.KindCostCenter {
+			mm.Kind = store.KindCostCenter
+		} else if m.ID == ex.Group.MyMemberID && !hasMe {
 			uid := u.ID
 			mm.UserID = &uid
 			hasMe = true
@@ -221,17 +236,35 @@ func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
 			oldToNew[m.ID] = members[i].ID
 		}
 	}
+	// The group's own categories come along under fresh ids.
+	catIDs := map[string]string{}
+	for _, c := range ex.Categories {
+		if c.Builtin || strings.TrimSpace(c.Label) == "" {
+			continue
+		}
+		if nc, err := s.store.CreateCategory(r.Context(), u.ID, g.ID, c.Label, c.Icon); err == nil {
+			catIDs[c.ID] = nc.ID
+		}
+	}
 	created, skipped := 0, 0
 	for _, old := range ex.Expenses {
 		e := &store.Expense{GroupID: g.ID, CreatedBy: u.ID, Title: old.Title, Amount: old.Amount, Currency: old.Currency, FxRate: old.FxRate, AmountGroup: old.AmountGroup,
-			PaidBy: oldToNew[old.PaidBy], Date: old.Date, Category: old.Category, Notes: old.Notes, SplitMode: old.SplitMode, Reimbursement: old.Reimbursement}
+			PaidBy: oldToNew[old.PaidBy], Date: old.Date, Category: old.Category, Notes: old.Notes, SplitMode: old.SplitMode, Reimbursement: old.Reimbursement,
+			CostCenterID: oldToNew[old.CostCenterID]}
+		if id, ok := catIDs[e.Category]; ok {
+			e.Category = id
+		}
+		if old.CostCenterID != 0 && e.CostCenterID == 0 {
+			skipped++
+			continue
+		}
 		if e.PaidBy == 0 || !validDate(e.Date) || !currency.Valid(e.Currency) || e.Amount == 0 {
 			skipped++
 			continue
 		}
 		if e.Reimbursement {
 			e.Category = ""
-		} else if !s.store.CategoryExists(r.Context(), e.Category, u.ID) {
+		} else if !s.store.CategoryExists(r.Context(), e.Category, g.ID) {
 			e.Category = s.store.FallbackCategory(r.Context())
 		}
 		ok := true

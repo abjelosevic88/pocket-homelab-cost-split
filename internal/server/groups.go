@@ -207,7 +207,12 @@ func canManage(g *store.Group, u *store.User) bool {
 type memberInput struct {
 	Name   string `json:"name"`
 	UserID *int64 `json:"user_id"` // null = no account; 0 = unlink
+	// Kind: "person" (default) or "cost_center" (a project the people fund up
+	// front; never linked to an account, never carries a personal share).
+	Kind string `json:"kind"`
 }
+
+func validKind(k string) bool { return k == store.KindPerson || k == store.KindCostCenter }
 
 func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 	g := groupFrom(r.Context())
@@ -216,7 +221,18 @@ func (s *Server) handleAddMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	m := store.Member{GroupID: g.ID, Name: strings.TrimSpace(in.Name)}
+	m := store.Member{GroupID: g.ID, Name: strings.TrimSpace(in.Name), Kind: in.Kind}
+	if m.Kind == "" {
+		m.Kind = store.KindPerson
+	}
+	if !validKind(m.Kind) {
+		writeErr(w, http.StatusBadRequest, "kind must be person or cost_center")
+		return
+	}
+	if m.IsCostCenter() && in.UserID != nil && *in.UserID > 0 {
+		writeErr(w, http.StatusBadRequest, "a cost center is not a person and cannot be linked to an account")
+		return
+	}
 	if in.UserID != nil && *in.UserID > 0 {
 		other, err := s.store.GetUser(r.Context(), *in.UserID)
 		if err != nil {
@@ -267,6 +283,43 @@ func (s *Server) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
 	if n := strings.TrimSpace(in.Name); n != "" {
 		m.Name = n
 	}
+	if in.Kind != "" && in.Kind != m.Kind {
+		if !validKind(in.Kind) {
+			writeErr(w, http.StatusBadRequest, "kind must be person or cost_center")
+			return
+		}
+		toCC := in.Kind == store.KindCostCenter
+		if toCC && (m.UserID != nil || (in.UserID != nil && *in.UserID > 0)) {
+			writeErr(w, http.StatusBadRequest, m.Name+" is linked to an account; a cost center is not a person. Unlink it first")
+			return
+		}
+		if toCC {
+			persons := 0
+			for _, x := range g.Members {
+				if !x.IsCostCenter() && x.ID != m.ID {
+					persons++
+				}
+			}
+			if persons == 0 {
+				writeErr(w, http.StatusBadRequest, "a group needs at least one person")
+				return
+			}
+		}
+		why, err := s.store.KindChangeBlocker(r.Context(), m.ID, toCC)
+		if err != nil {
+			s.fail(w, err, "member")
+			return
+		}
+		if why != "" {
+			writeErr(w, http.StatusBadRequest, m.Name+" "+why)
+			return
+		}
+		m.Kind = in.Kind
+	}
+	if in.UserID != nil && m.IsCostCenter() && *in.UserID > 0 {
+		writeErr(w, http.StatusBadRequest, "a cost center is not a person and cannot be linked to an account")
+		return
+	}
 	if in.UserID != nil {
 		changing := (m.UserID == nil) != (*in.UserID <= 0) || (m.UserID != nil && *m.UserID != *in.UserID)
 		if changing && m.UserID != nil && *m.UserID != u.ID && !canManage(g, u) {
@@ -311,8 +364,14 @@ func (s *Server) handleDeleteMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, m.Name+" is part of expenses and cannot be removed; edit those expenses first")
 		return
 	}
-	if len(g.Members) <= 1 {
-		writeErr(w, http.StatusBadRequest, "a group needs at least one member")
+	persons := 0
+	for _, x := range g.Members {
+		if !x.IsCostCenter() && x.ID != m.ID {
+			persons++
+		}
+	}
+	if !m.IsCostCenter() && persons == 0 {
+		writeErr(w, http.StatusBadRequest, "a group needs at least one person")
 		return
 	}
 	if err := s.store.DeleteMember(r.Context(), g.ID, id); err != nil {
@@ -326,14 +385,16 @@ func (s *Server) handleDeleteMember(w http.ResponseWriter, r *http.Request) {
 
 // ---- balances / stats / activity ----
 
+// handleBalances answers both books: the people's personal balances with the
+// payments that settle them, and per cost center what it owes whom.
 func (s *Server) handleBalances(w http.ResponseWriter, r *http.Request) {
 	g := groupFrom(r.Context())
-	bals, err := s.store.Balances(r.Context(), g.ID)
+	l, err := s.store.Ledger(r.Context(), g.ID)
 	if err != nil {
 		s.fail(w, err, "balances")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"currency": g.Currency, "balances": bals, "settlements": split.Settle(bals)})
+	writeJSON(w, http.StatusOK, map[string]any{"currency": g.Currency, "balances": l.Balances, "settlements": split.Settle(l.Balances), "cost_centers": l.CostCenters})
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
@@ -374,6 +435,9 @@ type CurrencyPosition struct {
 	YouOwe     int64  `json:"you_owe"`      // minor units
 	YouAreOwed int64  `json:"you_are_owed"` // minor units
 	Net        int64  `json:"net"`
+	// Claims is what cost centers (projects) owe the viewer for money they
+	// fronted; kept out of the personal figures above.
+	Claims int64 `json:"claims"`
 }
 
 // Dashboard is the compact status used by widgets and the home page.
@@ -384,6 +448,7 @@ type Dashboard struct {
 	YouOweText     string                `json:"you_owe_text"`
 	YouAreOwedText string                `json:"you_are_owed_text"`
 	NetText        string                `json:"net_text"`
+	ClaimsText     string                `json:"claims_text"` // what cost centers owe the viewer, "—" when nothing
 	SpentThisMonth []store.CurrencyTotal `json:"spent_this_month"`
 	SpentText      string                `json:"spent_text"`
 	GroupLines     []GroupLine           `json:"group_lines"`
@@ -394,8 +459,9 @@ type GroupLine struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Currency    string `json:"currency"`
-	Balance     int64  `json:"balance"`
-	Members     int    `json:"members"`
+	Balance     int64  `json:"balance"` // personal, cost centers left out
+	Claims      int64  `json:"claims"`  // what the group's cost centers owe the viewer
+	Members     int    `json:"members"` // people (cost centers not counted)
 	Expenses    int    `json:"expenses"`
 	Total       int64  `json:"total"`
 	LastDate    string `json:"last_date"`
@@ -409,6 +475,9 @@ type Who struct {
 	Amount int64  `json:"amount"`
 	FromMe bool   `json:"from_me"`
 	ToMe   bool   `json:"to_me"`
+	// CostCenter: From (or To, when a person owes it) is a cost center paying
+	// back what was fronted for it, not a person.
+	CostCenter bool `json:"cost_center"`
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -437,18 +506,37 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			p.YouAreOwed += g.MyBalance
 		}
 		p.Net += g.MyBalance
-		line := GroupLine{ID: g.ID, Name: g.Name, Currency: g.Currency, Balance: g.MyBalance, Members: len(g.Members), Expenses: g.ExpenseCount, Total: g.Total, LastDate: g.LastActivity, Settlements: []Who{}}
-		if bals, err := s.store.Balances(r.Context(), g.ID); err == nil {
+		p.Claims += g.MyClaims
+		persons := 0
+		for _, m := range g.Members {
+			if !m.IsCostCenter() {
+				persons++
+			}
+		}
+		line := GroupLine{ID: g.ID, Name: g.Name, Currency: g.Currency, Balance: g.MyBalance, Claims: g.MyClaims, Members: persons, Expenses: g.ExpenseCount, Total: g.Total, LastDate: g.LastActivity, Settlements: []Who{}}
+		if l, err := s.store.Ledger(r.Context(), g.ID); err == nil {
 			names := map[int64]string{}
 			for _, m := range g.Members {
 				names[m.ID] = m.Name
 			}
-			for _, t := range split.Settle(bals) {
-				w := Who{From: names[t.From], To: names[t.To], Amount: t.Amount, FromMe: t.From == g.MyMemberID, ToMe: t.To == g.MyMemberID}
+			add := func(w Who) {
 				if w.FromMe || w.ToMe {
 					line.Settlements = append([]Who{w}, line.Settlements...)
 				} else {
 					line.Settlements = append(line.Settlements, w)
+				}
+			}
+			for _, t := range split.Settle(l.Balances) {
+				add(Who{From: names[t.From], To: names[t.To], Amount: t.Amount, FromMe: t.From == g.MyMemberID, ToMe: t.To == g.MyMemberID})
+			}
+			// What each cost center owes back, kept apart from personal debts.
+			for _, cc := range l.CostCenters {
+				for _, c := range cc.Claims {
+					if c.Amount > 0 {
+						add(Who{From: names[cc.MemberID], To: names[c.MemberID], Amount: c.Amount, ToMe: c.MemberID == g.MyMemberID, CostCenter: true})
+					} else {
+						add(Who{From: names[c.MemberID], To: names[cc.MemberID], Amount: -c.Amount, FromMe: c.MemberID == g.MyMemberID, CostCenter: true})
+					}
 				}
 			}
 		}
@@ -461,6 +549,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	d.YouOweText = joinMoney(d.Positions, func(p CurrencyPosition) int64 { return p.YouOwe })
 	d.YouAreOwedText = joinMoney(d.Positions, func(p CurrencyPosition) int64 { return p.YouAreOwed })
 	d.NetText = joinMoney(d.Positions, func(p CurrencyPosition) int64 { return p.Net })
+	d.ClaimsText = joinMoney(d.Positions, func(p CurrencyPosition) int64 { return p.Claims })
 	d.SpentThisMonth, _ = s.store.MonthSpend(r.Context(), u.ID, time.Now().Format("2006-01"))
 	var parts []string
 	for _, c := range d.SpentThisMonth {

@@ -51,7 +51,10 @@ type expenseInput struct {
 	Notes         string   `json:"notes"`
 	SplitMode     string   `json:"split_mode"`
 	Reimbursement bool     `json:"reimbursement"`
-	Shares        []struct {
+	// CostCenterID on a payment from B to A: B buys into what that cost
+	// center owes A (A's claim on it moves to B). 0 = a personal payment.
+	CostCenterID int64 `json:"cost_center_id"`
+	Shares       []struct {
 		MemberID int64 `json:"member_id"`
 		Share    int64 `json:"share"`
 	} `json:"shares"`
@@ -93,8 +96,8 @@ func (s *Server) buildExpense(ctx context.Context, g *store.Group, in expenseInp
 		if in.Category == "" {
 			in.Category = s.store.FallbackCategory(ctx)
 		}
-		if !s.store.CategoryExists(ctx, in.Category, actorID(ctx)) {
-			return errors.New("unknown category " + in.Category)
+		if !s.store.CategoryExists(ctx, in.Category, g.ID) {
+			return errors.New("unknown category " + in.Category + " (not a built-in one nor one of this group)")
 		}
 	}
 	if in.SplitMode == "" {
@@ -131,6 +134,36 @@ func (s *Server) buildExpense(ctx context.Context, g *store.Group, in expenseInp
 	if in.Reimbursement {
 		in.SplitMode = split.ModeEven
 	}
+	// Cost centers: never a personal share, never a payer of costs.
+	payer := members[in.PaidBy]
+	if in.CostCenterID != 0 {
+		cc, ok := members[in.CostCenterID]
+		if !in.Reimbursement {
+			return errors.New("only a payment can buy into a cost center's debt")
+		}
+		if !ok || !cc.IsCostCenter() {
+			return errors.New("cost_center_id must be one of this group's cost centers")
+		}
+		if payer.IsCostCenter() || members[e.Shares[0].MemberID].IsCostCenter() {
+			return errors.New("buying into a cost center's debt is a payment between two people, not to or from a cost center")
+		}
+		if in.Amount < 0 {
+			return errors.New("the amount must be positive")
+		}
+	} else if in.Reimbursement {
+		if payer.IsCostCenter() && members[e.Shares[0].MemberID].IsCostCenter() {
+			return errors.New("a payment between two cost centers is not supported")
+		}
+	} else {
+		if payer.IsCostCenter() {
+			return fmt.Errorf("%s is a cost center and does not pay for things itself: pick who fronted the money (or record a payment from %s to pay someone back)", payer.Name, payer.Name)
+		}
+		for _, sh := range e.Shares {
+			if m := members[sh.MemberID]; m.IsCostCenter() && len(e.Shares) > 1 {
+				return fmt.Errorf("a cost for %s goes to it alone, as a whole: it is never split with people", m.Name)
+			}
+		}
+	}
 	// Exchange rate: given, kept from the saved expense if nothing changed, or looked up.
 	rate := 1.0
 	if in.Currency != g.Currency {
@@ -153,7 +186,27 @@ func (s *Server) buildExpense(ctx context.Context, g *store.Group, in expenseInp
 	e.Title, e.Amount, e.Currency, e.FxRate = in.Title, in.Amount, in.Currency, rate
 	e.AmountGroup = currency.Convert(in.Amount, in.Currency, g.Currency, rate)
 	e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, e.Reimbursement = in.PaidBy, in.Date, in.Category, strings.TrimSpace(in.Notes), in.SplitMode, in.Reimbursement
-	return store.ComputeShares(e)
+	e.CostCenterID = in.CostCenterID
+	if err := store.ComputeShares(e); err != nil {
+		return err
+	}
+	// Buying into a cost center's debt: the person paid must hold at least
+	// that much of a claim on it (this payment itself left out when editing).
+	if e.CostCenterID != 0 {
+		l, err := s.store.Ledger(ctx, g.ID, e.ID)
+		if err != nil {
+			return err
+		}
+		to := e.Shares[0].MemberID
+		if have := l.Claim(e.CostCenterID, to); e.AmountGroup > have {
+			cc := members[e.CostCenterID].Name
+			if have <= 0 {
+				return fmt.Errorf("%s holds no claim on %s to take over", members[to].Name, cc)
+			}
+			return fmt.Errorf("%s holds only %s of %s's debt; that is the most that can be taken over", members[to].Name, FormatMoney(have, g.Currency), cc)
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
@@ -292,20 +345,31 @@ func (s *Server) audienceEmails(ctx context.Context, g *store.Group) []string {
 
 // expenseSummary is the one-line form for the activity feed: "Dinner · 48.00 EUR · paid by Ana".
 func (s *Server) expenseSummary(g *store.Group, e *store.Expense) string {
-	payer := ""
-	for _, m := range g.Members {
-		if m.ID == e.PaidBy {
-			payer = m.Name
-		}
-	}
-	if e.Reimbursement {
-		to := ""
+	name := func(id int64) string {
 		for _, m := range g.Members {
-			if len(e.Shares) == 1 && m.ID == e.Shares[0].MemberID {
-				to = m.Name
+			if m.ID == id {
+				return m.Name
 			}
 		}
+		return ""
+	}
+	payer := name(e.PaidBy)
+	if e.Reimbursement {
+		to := ""
+		if len(e.Shares) == 1 {
+			to = name(e.Shares[0].MemberID)
+		}
+		if e.CostCenterID != 0 {
+			return fmt.Sprintf("%s → %s · %s · buys into %s", payer, to, FormatMoney(e.Amount, e.Currency), name(e.CostCenterID))
+		}
 		return fmt.Sprintf("%s → %s · %s", payer, to, FormatMoney(e.Amount, e.Currency))
+	}
+	if len(e.Shares) == 1 {
+		for _, m := range g.Members {
+			if m.ID == e.Shares[0].MemberID && m.IsCostCenter() {
+				return fmt.Sprintf("%s · %s · fronted by %s for %s", e.Title, FormatMoney(e.Amount, e.Currency), payer, m.Name)
+			}
+		}
 	}
 	return fmt.Sprintf("%s · %s · paid by %s", e.Title, FormatMoney(e.Amount, e.Currency), payer)
 }

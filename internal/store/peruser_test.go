@@ -36,6 +36,9 @@ func TestPerUserMigrationBackfill(t *testing.T) {
 		`INSERT INTO members (id, group_id, user_id, name) VALUES (3, 8, 1, 'Me'), (4, 8, NULL, 'Aleksandar')`,
 		`INSERT INTO expenses (id, group_id, title, amount, currency, amount_group, paid_by, date) VALUES (1, 7, 'Rent', 100, 'EUR', 100, 1, '2026-10-01')`,
 		`INSERT INTO expense_shares (expense_id, member_id, amount, amount_group) VALUES (1, 1, 50, 50), (1, 2, 50, 50)`,
+		`INSERT INTO categories (id, label) VALUES ('ski', 'Ski passes')`,
+		`INSERT INTO expenses (id, group_id, title, amount, currency, amount_group, paid_by, date, category) VALUES (2, 7, 'Pass', 10, 'EUR', 10, 1, '2026-10-02', 'ski'), (3, 8, 'Pass', 10, 'EUR', 10, 3, '2026-10-02', 'ski')`,
+		`INSERT INTO expense_shares (expense_id, member_id, amount, amount_group) VALUES (2, 1, 10, 10), (3, 3, 10, 10)`,
 		`INSERT INTO activity (group_id, kind) VALUES (7, 'expense.added')`,
 		`INSERT INTO categories (id, label) VALUES ('testi', 'testi')`,
 		`INSERT INTO settings (key, value) VALUES ('default_currency', 'BAM'), ('title', 'Pocket Split')`,
@@ -79,15 +82,25 @@ func TestPerUserMigrationBackfill(t *testing.T) {
 	if orphans != 0 {
 		t.Fatalf("%d rows without an owner", orphans)
 	}
+	// 0007: categories per group. "ski" (used in groups 7 and 8) stays with
+	// group 7, group 8 gets its own copy; the never-used "testi" is gone.
 	cats, _ := s.ListCategories(ctx, 1)
-	mine := false
+	where := map[string]int64{}
 	for _, c := range cats {
-		if c.ID == "testi" && c.Mine {
-			mine = true
+		if !c.Builtin {
+			where[c.ID] = c.GroupID
 		}
 	}
-	if !mine {
-		t.Fatalf("custom category not given to the owner")
+	if len(where) != 2 || where["ski"] != 7 || where["ski-g8"] != 8 {
+		t.Fatalf("custom categories not moved into their groups: %+v", where)
+	}
+	var cat3 string
+	_ = s.DB.QueryRow(`SELECT category FROM expenses WHERE id = 3`).Scan(&cat3)
+	if cat3 != "ski-g8" {
+		t.Fatalf("group 8's expense still on %q", cat3)
+	}
+	if cats, _ := s.ListCategories(ctx, 1, 8); len(cats) != 15 {
+		t.Fatalf("group 8 offers %d categories, want 14 built-in + its own", len(cats))
 	}
 	if cats, _ := s.ListCategories(ctx, 2); len(cats) != 14 {
 		t.Fatalf("member sees %d categories, want the 14 built-in ones", len(cats))

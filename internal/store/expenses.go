@@ -26,12 +26,12 @@ type ExpenseFilter struct {
 	Offset         int
 }
 
-const expenseCols = `id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, COALESCE(created_by, 0), source, created_at, updated_at`
+const expenseCols = `id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, COALESCE(cost_center_id, 0), COALESCE(created_by, 0), source, created_at, updated_at`
 
 func scanExpense(row interface{ Scan(...any) error }) (*Expense, error) {
 	var e Expense
 	var reimb int
-	if err := row.Scan(&e.ID, &e.GroupID, &e.Title, &e.Amount, &e.Currency, &e.FxRate, &e.AmountGroup, &e.PaidBy, &e.Date, &e.Category, &e.Notes, &e.SplitMode, &reimb, &e.CreatedBy, &e.Source, &e.CreatedAt, &e.UpdatedAt); err != nil {
+	if err := row.Scan(&e.ID, &e.GroupID, &e.Title, &e.Amount, &e.Currency, &e.FxRate, &e.AmountGroup, &e.PaidBy, &e.Date, &e.Category, &e.Notes, &e.SplitMode, &reimb, &e.CostCenterID, &e.CreatedBy, &e.Source, &e.CreatedAt, &e.UpdatedAt); err != nil {
 		return nil, notFound(err)
 	}
 	e.Reimbursement = reimb == 1
@@ -174,25 +174,28 @@ func (s *Store) SaveExpenseOperation(ctx context.Context, e *Expense, op *core.O
 		*e = replay
 		return true, nil
 	}
-	var createdBy any
+	var createdBy, costCenter any
 	if e.CreatedBy != 0 {
 		createdBy = e.CreatedBy
+	}
+	if e.CostCenterID != 0 {
+		costCenter = e.CostCenterID
 	}
 	if e.ID == 0 {
 		if err := tx.QueryRowContext(ctx, `UPDATE expense_sequence SET value=MAX(value,(SELECT COALESCE(MAX(id),0) FROM expenses))+1 WHERE singleton=1 RETURNING value`).Scan(&e.ID); err != nil {
 			return false, err
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO expenses (id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, created_by, source)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			e.ID, e.GroupID, e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), createdBy, e.Source)
+		_, err := tx.ExecContext(ctx, `INSERT INTO expenses (id, group_id, title, amount, currency, fx_rate, amount_group, paid_by, date, category, notes, split_mode, reimbursement, cost_center_id, created_by, source)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.ID, e.GroupID, e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), costCenter, createdBy, e.Source)
 		if err != nil {
 			return false, err
 		}
 		e.CreatedAt, e.UpdatedAt = Now(), Now()
 	} else {
-		res, err := tx.ExecContext(ctx, `UPDATE expenses SET title = ?, amount = ?, currency = ?, fx_rate = ?, amount_group = ?, paid_by = ?, date = ?, category = ?, notes = ?, split_mode = ?, reimbursement = ?, updated_at = ?
+		res, err := tx.ExecContext(ctx, `UPDATE expenses SET title = ?, amount = ?, currency = ?, fx_rate = ?, amount_group = ?, paid_by = ?, date = ?, category = ?, notes = ?, split_mode = ?, reimbursement = ?, cost_center_id = ?, updated_at = ?
 			WHERE id = ? AND group_id = ?`,
-			e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), Now(), e.ID, e.GroupID)
+			e.Title, e.Amount, e.Currency, e.FxRate, e.AmountGroup, e.PaidBy, e.Date, e.Category, e.Notes, e.SplitMode, boolInt(e.Reimbursement), costCenter, Now(), e.ID, e.GroupID)
 		if err != nil {
 			return false, err
 		}
@@ -285,27 +288,14 @@ func ComputeShares(e *Expense) error {
 	return nil
 }
 
-// Balances computes every member's position in the group currency.
+// Balances is every person's personal position in the group currency: cost
+// centers and everything that only concerns them are left out (see Ledger).
 func (s *Store) Balances(ctx context.Context, groupID int64) ([]split.Balance, error) {
-	rows, err := s.DB.QueryContext(ctx, `
-		SELECT m.id,
-		       COALESCE((SELECT SUM(e.amount_group) FROM expenses e WHERE e.paid_by = m.id), 0),
-		       COALESCE((SELECT SUM(sh.amount_group) FROM expense_shares sh WHERE sh.member_id = m.id), 0)
-		FROM members m WHERE m.group_id = ? ORDER BY m.id`, groupID)
+	l, err := s.Ledger(ctx, groupID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []split.Balance{}
-	for rows.Next() {
-		var b split.Balance
-		if err := rows.Scan(&b.MemberID, &b.Paid, &b.Owed); err != nil {
-			return nil, err
-		}
-		b.Balance = b.Paid - b.Owed
-		out = append(out, b)
-	}
-	return out, rows.Err()
+	return l.Balances, nil
 }
 
 // GroupStats is what the Stats tab shows.

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 )
 
@@ -59,7 +60,10 @@ func insertMember(ctx context.Context, tx *sql.Tx, m *Member) error {
 	if m.UserID != nil && *m.UserID > 0 {
 		uid = *m.UserID
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO members (group_id, user_id, name) VALUES (?, ?, ?)`, m.GroupID, uid, m.Name)
+	if m.Kind == "" {
+		m.Kind = KindPerson
+	}
+	res, err := tx.ExecContext(ctx, `INSERT INTO members (group_id, user_id, name, kind) VALUES (?, ?, ?, ?)`, m.GroupID, uid, m.Name, m.Kind)
 	if err != nil {
 		return conflict(err)
 	}
@@ -163,15 +167,16 @@ func (s *Store) decorateGroups(ctx context.Context, groups []*Group, viewer int6
 		}
 		g.LastActivity = last.String
 		if g.MyMemberID != 0 {
-			bals, err := s.Balances(ctx, g.ID)
+			l, err := s.Ledger(ctx, g.ID)
 			if err != nil {
 				return err
 			}
-			for _, b := range bals {
+			for _, b := range l.Balances {
 				if b.MemberID == g.MyMemberID {
 					g.MyBalance = b.Balance
 				}
 			}
+			g.MyClaims = l.ClaimsOf(g.MyMemberID)
 		}
 	}
 	return nil
@@ -181,7 +186,7 @@ func (s *Store) decorateGroups(ctx context.Context, groups []*Group, viewer int6
 
 // ListMembers returns a group's members in join order.
 func (s *Store) ListMembers(ctx context.Context, groupID int64) ([]Member, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, group_id, user_id, name, created_at FROM members WHERE group_id = ? ORDER BY id`, groupID)
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, group_id, user_id, name, kind, created_at FROM members WHERE group_id = ? ORDER BY id`, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +195,7 @@ func (s *Store) ListMembers(ctx context.Context, groupID int64) ([]Member, error
 	for rows.Next() {
 		var m Member
 		var uid sql.NullInt64
-		if err := rows.Scan(&m.ID, &m.GroupID, &uid, &m.Name, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.GroupID, &uid, &m.Name, &m.Kind, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		if uid.Valid {
@@ -206,7 +211,7 @@ func (s *Store) ListMembers(ctx context.Context, groupID int64) ([]Member, error
 func (s *Store) GetMember(ctx context.Context, groupID, id int64) (*Member, error) {
 	var m Member
 	var uid sql.NullInt64
-	err := s.DB.QueryRowContext(ctx, `SELECT id, group_id, user_id, name, created_at FROM members WHERE id = ? AND group_id = ?`, id, groupID).Scan(&m.ID, &m.GroupID, &uid, &m.Name, &m.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, `SELECT id, group_id, user_id, name, kind, created_at FROM members WHERE id = ? AND group_id = ?`, id, groupID).Scan(&m.ID, &m.GroupID, &uid, &m.Name, &m.Kind, &m.CreatedAt)
 	if err != nil {
 		return nil, notFound(err)
 	}
@@ -230,21 +235,63 @@ func (s *Store) AddMember(ctx context.Context, m *Member) error {
 	return tx.Commit()
 }
 
-// UpdateMember renames or (un)links a member.
+// UpdateMember renames, (un)links or changes the kind of a member.
 func (s *Store) UpdateMember(ctx context.Context, m *Member) error {
 	var uid any
 	if m.UserID != nil && *m.UserID > 0 {
 		uid = *m.UserID
 	}
-	_, err := s.DB.ExecContext(ctx, `UPDATE members SET name = ?, user_id = ? WHERE id = ? AND group_id = ?`, m.Name, uid, m.ID, m.GroupID)
+	if m.Kind == "" {
+		m.Kind = KindPerson
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE members SET name = ?, user_id = ?, kind = ? WHERE id = ? AND group_id = ?`, m.Name, uid, m.Kind, m.ID, m.GroupID)
 	return conflict(err)
 }
 
-// MemberInUse reports whether a member paid or shares any expense.
+// MemberInUse reports whether a member paid or shares any expense, or is the
+// cost center of a payment.
 func (s *Store) MemberInUse(ctx context.Context, id int64) (bool, error) {
 	var n int
-	err := s.DB.QueryRowContext(ctx, `SELECT (SELECT COUNT(1) FROM expenses WHERE paid_by = ?) + (SELECT COUNT(1) FROM expense_shares WHERE member_id = ?)`, id, id).Scan(&n)
+	err := s.DB.QueryRowContext(ctx, `SELECT (SELECT COUNT(1) FROM expenses WHERE paid_by = ? OR cost_center_id = ?) + (SELECT COUNT(1) FROM expense_shares WHERE member_id = ?)`, id, id, id).Scan(&n)
 	return n > 0, err
+}
+
+// KindChangeBlocker explains why a member cannot become a cost center
+// (toCostCenter) or a person again, "" when nothing stands in the way.
+//   - A cost center never pays for things itself and is never a side of a
+//     claim transfer, so a person who did either cannot become one.
+//   - A cost center that payments bought into cannot become a person.
+func (s *Store) KindChangeBlocker(ctx context.Context, id int64, toCostCenter bool) (string, error) {
+	var n int
+	if toCostCenter {
+		if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM expenses WHERE paid_by = ? AND reimbursement = 0`, id).Scan(&n); err != nil {
+			return "", err
+		}
+		if n > 0 {
+			return fmt.Sprintf("paid for %d %s; a cost center does not pay for things itself. Change the payer on %s first", n, plural(n, "expense", "expenses"), plural(n, "it", "them")), nil
+		}
+		if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM expenses e WHERE e.cost_center_id IS NOT NULL AND (e.paid_by = ? OR EXISTS (SELECT 1 FROM expense_shares sh WHERE sh.expense_id = e.id AND sh.member_id = ?))`, id, id).Scan(&n); err != nil {
+			return "", err
+		}
+		if n > 0 {
+			return fmt.Sprintf("is a side of %d %s that bought into a cost center", n, plural(n, "payment", "payments")), nil
+		}
+		return "", nil
+	}
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(1) FROM expenses WHERE cost_center_id = ?`, id).Scan(&n); err != nil {
+		return "", err
+	}
+	if n > 0 {
+		return fmt.Sprintf("%d %s bought into it; remove %s first", n, plural(n, "payment", "payments"), plural(n, "that payment", "those payments")), nil
+	}
+	return "", nil
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // DeleteMember removes a member that is not part of any expense.

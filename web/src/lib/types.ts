@@ -2,9 +2,12 @@ export interface User { id: number; email: string; name: string; role: 'admin' |
 export interface APIToken { id: number; name: string; prefix: string; last_used_at: string | null; created_at: string }
 
 export interface Currency { code: string; name: string; decimals: number }
-export interface Category { id: string; label: string; icon: string; builtin: boolean; sort_order: number; mine: boolean; count: number; fallback: boolean }
+/** group_id: the group it belongs to; 0 for a built-in one (offered in every group). */
+export interface Category { id: string; label: string; icon: string; builtin: boolean; sort_order: number; group_id: number; mine: boolean; count: number; fallback: boolean }
 
-export interface Member { id: number; group_id: number; user_id: number | null; name: string; created_at: string }
+/** person, or cost_center: a project the people fund up front that pays them back later. */
+export type MemberKind = 'person' | 'cost_center'
+export interface Member { id: number; group_id: number; user_id: number | null; name: string; kind: MemberKind; created_at: string }
 
 export interface Group {
   id: number
@@ -20,6 +23,8 @@ export interface Group {
   total: number
   my_member_id: number
   my_balance: number
+  /** what the group's cost centers owe the viewer */
+  my_claims: number
   last_activity: string
 }
 
@@ -41,6 +46,8 @@ export interface Expense {
   notes: string
   split_mode: SplitMode
   reimbursement: boolean
+  /** on a payment from B to A: B buys into what this cost center owes A (0 = personal) */
+  cost_center_id: number
   created_by: number
   /** Pocket app slug that added it through a Core link ("kitchen"), "" for people */
   source: string
@@ -51,7 +58,10 @@ export interface Expense {
 
 export interface Balance { member_id: number; paid: number; owed: number; balance: number }
 export interface Transfer { from: number; to: number; amount: number }
-export interface Balances { currency: string; balances: Balance[]; settlements: Transfer[] }
+export interface Claim { member_id: number; amount: number }
+export interface CostCenterPosition { member_id: number; charged: number; repaid: number; owes: number; claims: Claim[] }
+/** balances/settlements: people only; cost_centers: what each project owes back to whom */
+export interface Balances { currency: string; balances: Balance[]; settlements: Transfer[]; cost_centers: CostCenterPosition[] }
 
 export interface GroupStats {
   currency: string
@@ -81,13 +91,14 @@ export interface Activity {
 export interface Dashboard {
   groups: number
   archived_groups: number
-  positions: { currency: string; you_owe: number; you_are_owed: number; net: number }[]
+  positions: { currency: string; you_owe: number; you_are_owed: number; net: number; claims: number }[]
   you_owe_text: string
   you_are_owed_text: string
   net_text: string
+  claims_text: string
   spent_this_month: { currency: string; total: number; count: number }[]
   spent_text: string
-  group_lines: { id: number; name: string; currency: string; balance: number; members: number; expenses: number; total: number; last_date: string; settlements: { from: string; to: string; amount: number; from_me: boolean; to_me: boolean }[] }[]
+  group_lines: { id: number; name: string; currency: string; balance: number; claims: number; members: number; expenses: number; total: number; last_date: string; settlements: { from: string; to: string; amount: number; from_me: boolean; to_me: boolean; cost_center: boolean }[] }[]
 }
 
 export interface Settings {

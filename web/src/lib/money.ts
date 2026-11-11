@@ -141,9 +141,17 @@ export function memberName(members: Member[], id: number): string {
   return members.find(m => m.id === id)?.name || '?'
 }
 
-/** "Ana, Marko and Jelena" / "everyone" when all members are in. */
+/** A cost center (project) rather than a person. */
+export const isCC = (m?: Pick<Member, 'kind'> | null) => m?.kind === 'cost_center'
+/** The people of a group, cost centers left out. */
+export const peopleOf = (members: Member[]) => members.filter(m => !isCC(m))
+/** The categories a group offers: the built-in ones and its own. */
+export const categoriesFor = <T extends { group_id: number }>(cats: T[], groupId: number) => cats.filter(c => !c.group_id || c.group_id === groupId)
+
+/** "Ana, Marko and Jelena" / "everyone" when all the people are in. */
 export function listNames(members: Member[], ids: number[]): string {
-  if (ids.length === members.length && members.length > 1) return 'everyone'
+  const people = peopleOf(members)
+  if (ids.length === people.length && people.length > 1 && ids.every(id => people.some(p => p.id === id))) return 'everyone'
   const names = ids.map(id => memberName(members, id))
   if (names.length <= 1) return names.join('')
   return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]

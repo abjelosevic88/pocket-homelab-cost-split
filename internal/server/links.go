@@ -35,6 +35,7 @@ var linkRoutes = []linkRoute{
 	{"GET", regexp.MustCompile(`^/api/v1/groups/\d+/expenses$`), "groups:read"},
 	{"GET", regexp.MustCompile(`^/api/v1/groups/\d+/expenses/\d+$`), "groups:read"},
 	{"GET", regexp.MustCompile(`^/api/v1/categories$`), "groups:read"},
+	{"GET", regexp.MustCompile(`^/api/v1/groups/\d+/categories$`), "groups:read"},
 	{"POST", regexp.MustCompile(`^/api/v1/groups/\d+/expenses$`), "expenses:write"},
 	{"PUT DELETE", regexp.MustCompile(`^/api/v1/groups/\d+/expenses/\d+$`), "expenses:write"},
 }

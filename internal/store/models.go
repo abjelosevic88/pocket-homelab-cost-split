@@ -37,9 +37,17 @@ type Group struct {
 	ExpenseCount int      `json:"expense_count"`
 	Total        int64    `json:"total"`         // spent (reimbursements excluded), group minor units
 	MyMemberID   int64    `json:"my_member_id"`  // the viewer's member in this group, 0 if none
-	MyBalance    int64    `json:"my_balance"`    // the viewer's balance, group minor units
+	MyBalance    int64    `json:"my_balance"`    // the viewer's personal balance (cost centers left out), group minor units
+	MyClaims     int64    `json:"my_claims"`     // what the group's cost centers owe the viewer, group minor units
 	LastActivity string   `json:"last_activity"` // date of the latest expense
 }
+
+// Member kinds: a person, or a cost center (a project the people fund up
+// front and that pays them back later; it never carries a personal share).
+const (
+	KindPerson     = "person"
+	KindCostCenter = "cost_center"
+)
 
 // Member takes part in a group; optionally a signed-in user.
 type Member struct {
@@ -47,8 +55,12 @@ type Member struct {
 	GroupID   int64  `json:"group_id"`
 	UserID    *int64 `json:"user_id"`
 	Name      string `json:"name"`
+	Kind      string `json:"kind"` // person | cost_center
 	CreatedAt string `json:"created_at"`
 }
+
+// IsCostCenter reports whether the member is a cost center, not a person.
+func (m Member) IsCostCenter() bool { return m.Kind == KindCostCenter }
 
 // Expense is one payment by one member for some members.
 type Expense struct {
@@ -65,7 +77,10 @@ type Expense struct {
 	Notes         string  `json:"notes"`
 	SplitMode     string  `json:"split_mode"`
 	Reimbursement bool    `json:"reimbursement"`
-	CreatedBy     int64   `json:"created_by"`
+	// CostCenterID, on a payment from B to A, makes it B buying into what
+	// that cost center owes A (0 = an ordinary personal payment).
+	CostCenterID int64 `json:"cost_center_id"`
+	CreatedBy    int64 `json:"created_by"`
 	// Source is the Pocket app that added the expense through a Core link
 	// ("kitchen"), empty when a person added it.
 	Source    string  `json:"source"`
@@ -125,15 +140,17 @@ func ValidDateFormat(v string) bool { return oneOf(v, DateFormats) }
 func ValidTimeFormat(v string) bool { return oneOf(v, TimeFormats) }
 
 // Category is what an expense is for. Built-in ones come with the app and are
-// shared; anyone can add their own. The id is a slug and is what expenses store.
+// shared by every group; the others belong to one group. The id is a slug and
+// is what expenses store.
 type Category struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Icon      string `json:"icon"`
 	Builtin   bool   `json:"builtin"`
 	SortOrder int    `json:"sort_order"`
-	Mine      bool   `json:"mine"`  // a custom category the viewer created (and may change)
-	Count     int    `json:"count"` // the viewer's visible expenses using it
+	GroupID   int64  `json:"group_id"` // the group it belongs to, 0 for a built-in one
+	Mine      bool   `json:"mine"`     // a group category the viewer may change (anyone in its group)
+	Count     int    `json:"count"`    // the viewer's visible expenses using it
 	// Fallback marks the category expenses without one land in (General, or
 	// the first built-in one once General is removed).
 	Fallback bool `json:"fallback"`

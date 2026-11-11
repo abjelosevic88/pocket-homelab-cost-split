@@ -18,7 +18,8 @@ func (s *Server) expenseEvent(ctx context.Context, u *store.User, g *store.Group
 		payload := map[string]any{
 			"expense_id": e.ID, "group_id": g.ID, "group": g.Name, "title": e.Title, "summary": s.expenseSummary(g, e),
 			"amount": e.Amount, "currency": e.Currency, "date": e.Date, "category": e.Category, "paid_by": e.PaidBy, "reimbursement": e.Reimbursement,
-			"actor_email": u.Email, "user_email": u.Email, "audience_emails": audience,
+			"cost_center_id": e.CostCenterID,
+			"actor_email":    u.Email, "user_email": u.Email, "audience_emails": audience,
 		}
 		if topic != "split.expense_deleted" {
 			payload["amount_group"] = e.AmountGroup

@@ -15,7 +15,7 @@ type TabId = 'general' | 'categories' | 'users' | 'profile' | 'api' | 'data' | '
 
 const TABS: { id: TabId; label: string; icon: string; sub: string }[] = [
   { id: 'general', label: 'General', icon: 'settings', sub: 'Your default currency, date and time formats; the app title and exchange-rate lookups for the box.' },
-  { id: 'categories', label: 'Categories', icon: 'tag', sub: 'What an expense is for: the built-in list and your own.' },
+  { id: 'categories', label: 'Categories', icon: 'tag', sub: 'What an expense is for: the built-in list and each group’s own.' },
   { id: 'users', label: 'People', icon: 'users', sub: 'Everyone who has an account on this box.' },
   { id: 'profile', label: 'Profile', icon: 'user', sub: 'Your name, email and password.' },
   { id: 'api', label: 'API tokens', icon: 'key', sub: 'Personal tokens for widgets, scripts and iOS Shortcuts.' },
@@ -325,13 +325,13 @@ function About() {
 }
 
 function Categories() {
-  const { user, categories, reloadMeta } = useApp()
+  const { user, categories, groups, archived, reloadMeta } = useApp()
   const { toast } = useToast()
   const isAdmin = user?.role === 'admin'
-  // Your own categories are yours to change; the built-in list is box-wide and an admin's.
+  // A group's categories belong to the group: anyone in it changes them. The built-in list is box-wide and an admin's.
   const canEdit = (c: Category) => c.mine || (c.builtin && isAdmin)
   const [draft, setDraft] = useState<Record<string, { label: string; icon: string }>>({})
-  const [add, setAdd] = useState({ label: '', icon: '' })
+  const [add, setAdd] = useState({ label: '', icon: '', group: '' })
   const [del, setDel] = useState<Category | null>(null)
   const fallbackLabel = categories.find(c => c.fallback)?.label || 'General'
   // The fallback (General) can go once nothing uses it and another built-in category is left to take over.
@@ -341,43 +341,60 @@ function Categories() {
   const d = (c: Category) => draft[c.id] || { label: c.label, icon: c.icon }
   const changed = (c: Category) => draft[c.id] && (draft[c.id].label !== c.label || draft[c.id].icon !== c.icon)
   const save = (c: Category) => run(async () => { await api.put(`${V1}/categories/${c.id}`, d(c)); setDraft(x => { const y = { ...x }; delete y[c.id]; return y }) }, 'Saved')
-  const move = (c: Category, dir: -1 | 1) => {
-    const i = categories.findIndex(x => x.id === c.id), j = i + dir
-    if (j < 0 || j >= categories.length) return
-    const o = categories[j]
+  // Built-in ones are numbered from 1; a group's own come after them (1000+), so they always list below.
+  const move = (list: Category[], c: Category, dir: -1 | 1) => {
+    const i = list.findIndex(x => x.id === c.id), j = i + dir
+    if (j < 0 || j >= list.length) return
+    const o = list[j]
     if (!canEdit(o)) return
-    run(async () => { await api.put(`${V1}/categories/${c.id}`, { sort_order: j + 1 }); await api.put(`${V1}/categories/${o.id}`, { sort_order: i + 1 }) }, 'Moved')
+    const base = c.builtin ? 1 : 1000
+    run(async () => { await api.put(`${V1}/categories/${c.id}`, { sort_order: base + j }); await api.put(`${V1}/categories/${o.id}`, { sort_order: base + i }) }, 'Moved')
   }
-  const create = (e: React.FormEvent) => { e.preventDefault(); if (!add.label.trim()) return; run(async () => { await api.post(`${V1}/categories`, add); setAdd({ label: '', icon: '' }) }, 'Category added') }
+  const allGroups = [...groups, ...archived]
+  const addTo = add.group || String(groups[0]?.id || '')
+  const create = (e: React.FormEvent) => { e.preventDefault(); if (!add.label.trim() || !addTo) return; run(async () => { await api.post(`${V1}/categories`, { label: add.label, icon: add.icon, group_id: Number(addTo) }); setAdd({ ...add, label: '', icon: '' }) }, 'Category added') }
+  const builtin = categories.filter(c => c.builtin)
+  const sections = allGroups.map(g => ({ g, list: categories.filter(c => c.group_id === g.id) })).filter(x => x.list.length > 0 || !x.g.archived)
+  const rows = (list: Category[]) => (
+    <div className="cat-list">
+      {list.map((c, i) => (
+        <div key={c.id} className="cat-row">
+          <input className="cat-icon" value={d(c).icon} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), icon: e.target.value } })} maxLength={8} disabled={!canEdit(c)} aria-label={`Icon for ${c.label}`} />
+          <input className="cat-name" value={d(c).label} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), label: e.target.value } })} maxLength={60} disabled={!canEdit(c)} aria-label={`Name of ${c.label}`} />
+          <span className="cat-used muted small">{c.count} {c.count === 1 ? 'expense' : 'expenses'}{c.builtin && <span className="badge">built-in</span>}</span>
+          <span className="cat-acts">
+            {canEdit(c) && <>
+              {changed(c) && <button type="button" className="btn primary sm" onClick={() => save(c)} disabled={busy}>Save</button>}
+              <button type="button" className="btn ghost icon-only sm" onClick={() => move(list, c, -1)} disabled={busy || i === 0 || !canEdit(list[i - 1])} title="Move up" aria-label={`Move ${c.label} up`}><Icon name="arrow-up" size={15} /></button>
+              <button type="button" className="btn ghost icon-only sm" onClick={() => move(list, c, 1)} disabled={busy || i === list.length - 1 || !canEdit(list[i + 1])} title="Move down" aria-label={`Move ${c.label} down`}><Icon name="arrow-down" size={15} /></button>
+              {canDelete(c) && <button type="button" className="btn ghost icon-only sm danger-text" onClick={() => setDel(c)} disabled={busy} title="Remove" aria-label={`Remove ${c.label}`}><Icon name="trash" size={15} /></button>}
+            </>}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
   return (
     <div className="stack loose">
-      <Section title="Categories" sub={<>Add your own here or straight from the expense form by typing a name that is not in the list; they are yours (others see one only where it is used in a group they share with you). Rename, reorder or remove your own here; expenses of a removed category move to {fallbackLabel}. {isAdmin ? 'As an admin you also edit the built-in ones, for everyone.' : 'The built-in ones are set by an admin.'}</>}>
-        <div className="cat-list">
-          {categories.map((c, i) => (
-            <div key={c.id} className="cat-row">
-              <input className="cat-icon" value={d(c).icon} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), icon: e.target.value } })} maxLength={8} disabled={!canEdit(c)} aria-label={`Icon for ${c.label}`} />
-              <input className="cat-name" value={d(c).label} onChange={e => setDraft({ ...draft, [c.id]: { ...d(c), label: e.target.value } })} maxLength={60} disabled={!canEdit(c)} aria-label={`Name of ${c.label}`} />
-              <span className="cat-used muted small">{c.count} {c.count === 1 ? 'expense' : 'expenses'}{c.builtin && <span className="badge">built-in</span>}{!c.builtin && !c.mine && <span className="badge">shared</span>}</span>
-              <span className="cat-acts">
-                {canEdit(c) && <>
-                  {changed(c) && <button type="button" className="btn primary sm" onClick={() => save(c)} disabled={busy}>Save</button>}
-                  <button type="button" className="btn ghost icon-only sm" onClick={() => move(c, -1)} disabled={busy || i === 0 || !canEdit(categories[i - 1])} title="Move up" aria-label={`Move ${c.label} up`}><Icon name="arrow-up" size={15} /></button>
-                  <button type="button" className="btn ghost icon-only sm" onClick={() => move(c, 1)} disabled={busy || i === categories.length - 1 || !canEdit(categories[i + 1])} title="Move down" aria-label={`Move ${c.label} down`}><Icon name="arrow-down" size={15} /></button>
-                  {canDelete(c) && <button type="button" className="btn ghost icon-only sm danger-text" onClick={() => setDel(c)} disabled={busy} title="Remove" aria-label={`Remove ${c.label}`}><Icon name="trash" size={15} /></button>}
-                </>}
-              </span>
-            </div>
-          ))}
-        </div>
+      <Section title="Built-in categories" sub={<>Offered in every group. Expenses of a removed category move to {fallbackLabel}. {isAdmin ? 'As an admin you edit these for everyone.' : 'They are set by an admin.'}</>}>
+        {rows(builtin)}
       </Section>
-      <Section title="Add a category" sub="The icon is any emoji; leave it empty for 🏷️.">
-        <form onSubmit={create} className="row wrap">
-          <input className="cat-icon" value={add.icon} onChange={e => setAdd({ ...add, icon: e.target.value })} placeholder="🏷️" maxLength={8} aria-label="Icon" />
-          <input value={add.label} onChange={e => setAdd({ ...add, label: e.target.value })} placeholder="New category, e.g. Ski passes" maxLength={60} style={{ flex: '1 1 200px', width: 'auto' }} aria-label="New category name" />
-          <button type="submit" className="btn primary" disabled={busy || !add.label.trim()}><Icon name="plus" size={15} />Add</button>
-        </form>
+      {sections.map(({ g, list }) => (
+        <Section key={g.id} title={<>{g.name}{g.archived && <span className="badge">archived</span>}</>} sub={list.length ? 'Only this group offers these; everyone in it can change them.' : 'No categories of its own yet: add one below, or type a new name in the expense form.'}>
+          {list.length > 0 && rows(list)}
+        </Section>
+      ))}
+      <Section title="Add a category" sub="A category belongs to one group. The icon is any emoji; leave it empty for 🏷️.">
+        {groups.length === 0 ? <p className="muted small">Create a group first.</p> : (
+          <form onSubmit={create} className="row wrap">
+            <Select value={addTo} onChange={v => setAdd({ ...add, group: v })} options={groups.map(g => ({ value: String(g.id), label: g.name }))} ariaLabel="Group" />
+            <input className="cat-icon" value={add.icon} onChange={e => setAdd({ ...add, icon: e.target.value })} placeholder="🏷️" maxLength={8} aria-label="Icon" />
+            <input value={add.label} onChange={e => setAdd({ ...add, label: e.target.value })} placeholder="New category, e.g. Ski passes" maxLength={60} style={{ flex: '1 1 200px', width: 'auto' }} aria-label="New category name" />
+            <button type="submit" className="btn primary" disabled={busy || !add.label.trim()}><Icon name="plus" size={15} />Add</button>
+          </form>
+        )}
       </Section>
-      {del && <Confirm title={`Remove “${del.label}”?`} message={del.fallback ? 'Nothing uses it. New expenses will start in the next built-in category instead.' : `${del.count} ${del.count === 1 ? 'expense moves' : 'expenses move'} to ${fallbackLabel}. The category is gone from every group that used it.`} confirmLabel="Remove" onCancel={() => setDel(null)} onConfirm={() => { const c = del; setDel(null); run(() => api.del(`${V1}/categories/${c.id}`), 'Category removed') }} />}
+      {del && <Confirm title={`Remove “${del.label}”?`} message={del.fallback ? 'Nothing uses it. New expenses will start in the next built-in category instead.' : `${del.count} ${del.count === 1 ? 'expense moves' : 'expenses move'} to ${fallbackLabel}.${del.builtin ? ' It is gone from every group.' : ''}`} confirmLabel="Remove" onCancel={() => setDel(null)} onConfirm={() => { const c = del; setDel(null); run(() => api.del(`${V1}/categories/${c.id}`), 'Category removed') }} />}
     </div>
   )
 }

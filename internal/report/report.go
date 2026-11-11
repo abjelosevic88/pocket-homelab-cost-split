@@ -48,9 +48,12 @@ type Report struct {
 	Currencies  []CurrencyRow `json:"currencies"`
 	// Settlements are the group's real open debts as of now (every expense and
 	// payment, regardless of the filter).
-	Settlements []Debt           `json:"settlements"`
-	Filtered    bool             `json:"filtered"`
-	MemberNames map[int64]string `json:"-"`
+	Settlements []Debt `json:"settlements"`
+	// CostCenterDebts is what each cost center owes back to the people who
+	// fronted money for it, as of now (kept apart from personal debts).
+	CostCenterDebts []Debt           `json:"cost_center_debts"`
+	Filtered        bool             `json:"filtered"`
+	MemberNames     map[int64]string `json:"-"`
 }
 
 // Debt is "From owes To Amount".
@@ -120,18 +123,23 @@ type ExpenseRow struct {
 
 // Build aggregates the already-filtered expenses. balances are the group's
 // current balances over everything (for the "who owes whom" section).
-func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balances []split.Balance, f Filter, by string) *Report {
+func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balances []split.Balance, centers []store.CostCenterPosition, f Filter, by string) *Report {
 	r := &Report{Group: GroupInfo{ID: g.ID, Name: g.Name, Currency: g.Currency}, Filter: f, GeneratedAt: time.Now().Format("2006-01-02 15:04"), GeneratedBy: by,
-		Members: []MemberRow{}, Categories: []CategoryRow{}, Months: []MonthRow{}, Expenses: []ExpenseRow{}, Currencies: []CurrencyRow{}, Settlements: []Debt{}, MemberNames: map[int64]string{}}
+		Members: []MemberRow{}, Categories: []CategoryRow{}, Months: []MonthRow{}, Expenses: []ExpenseRow{}, Currencies: []CurrencyRow{}, Settlements: []Debt{}, CostCenterDebts: []Debt{}, MemberNames: map[int64]string{}}
 	r.Filtered = f.From != "" || f.To != "" || len(f.Categories) > 0 || f.MemberID != 0
 	catLabel, catIcon := map[string]string{}, map[string]string{}
 	for _, c := range cats {
 		catLabel[c.ID], catIcon[c.ID] = c.Label, c.Icon
 	}
+	// Per person: cost centers are not people, they show under their debts.
 	memRows := map[int64]*MemberRow{}
+	persons := 0
 	for _, m := range g.Members {
 		r.MemberNames[m.ID] = m.Name
-		memRows[m.ID] = &MemberRow{MemberID: m.ID, Name: m.Name}
+		if !m.IsCostCenter() {
+			memRows[m.ID] = &MemberRow{MemberID: m.ID, Name: m.Name}
+			persons++
+		}
 	}
 	catRows, monthRows, curRows := map[string]*CategoryRow{}, map[string]*MonthRow{}, map[string]*CurrencyRow{}
 	for _, e := range exps {
@@ -151,7 +159,7 @@ func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balance
 			names = append(names, r.MemberNames[sh.MemberID])
 		}
 		forText := strings.Join(names, ", ")
-		if len(e.Shares) == len(g.Members) && len(g.Members) > 1 {
+		if len(e.Shares) == persons && persons > 1 {
 			forText = "everyone"
 		}
 		row := ExpenseRow{ID: e.ID, Date: e.Date, Title: e.Title, Category: e.Category, CategoryLabel: catLabel[e.Category], PaidBy: r.MemberNames[e.PaidBy], Amount: e.Amount, Currency: e.Currency, AmountGroup: e.AmountGroup, For: forText, Notes: e.Notes}
@@ -196,7 +204,9 @@ func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balance
 		cr.Count++
 	}
 	for _, m := range g.Members {
-		r.Members = append(r.Members, *memRows[m.ID])
+		if row := memRows[m.ID]; row != nil {
+			r.Members = append(r.Members, *row)
+		}
 	}
 	for _, c := range catRows {
 		if r.Total != 0 {
@@ -213,11 +223,21 @@ func Build(g *store.Group, cats []store.Category, exps []*store.Expense, balance
 		r.Currencies = append(r.Currencies, *c)
 	}
 	sort.Slice(r.Currencies, func(i, j int) bool { return r.Currencies[i].Count > r.Currencies[j].Count })
-	if n := len(g.Members); n > 0 {
-		r.PerHead = r.Total / int64(n)
+	if persons > 0 {
+		r.PerHead = r.Total / int64(persons)
 	}
 	r.FilterText = describe(f, r, catLabel)
 	r.Settlements = r.debts(split.Settle(balances))
+	for _, cc := range centers {
+		for _, c := range cc.Claims {
+			d := Debt{From: cc.MemberID, To: c.MemberID, Amount: c.Amount}
+			if c.Amount < 0 {
+				d = Debt{From: c.MemberID, To: cc.MemberID, Amount: -c.Amount}
+			}
+			d.FromName, d.ToName = r.MemberNames[d.From], r.MemberNames[d.To]
+			r.CostCenterDebts = append(r.CostCenterDebts, d)
+		}
+	}
 	return r
 }
 
@@ -427,6 +447,9 @@ func PDF(r *Report, appTitle string) ([]byte, error) {
 	}
 	if r.Filter.Debts {
 		owes("Who owes whom", fmt.Sprintf("Open debts in the group as of %s, counting every expense and every payment made so far. Paying these amounts settles everything with the fewest transfers.", r.GeneratedAt), r.Settlements)
+		if len(r.CostCenterDebts) > 0 {
+			owes("What cost centers owe back", fmt.Sprintf("As of %s: money people fronted for a project, which the project pays back once it has it. Not part of the personal debts above.", r.GeneratedAt), r.CostCenterDebts)
+		}
 	}
 
 	// Per person
