@@ -53,9 +53,10 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 | Area | What you get |
 |---|---|
 | **Groups** | Name, description, main currency (any ISO 4217 code), people with or without accounts, archive, delete. Strictly per person: a group is seen only by whoever created it and the accounts linked to its people; admins included. |
-| **Expenses** | Title, amount, currency, exchange rate, who paid, date, category (14 built in, add your own from the form), notes. Split evenly / by shares / by percentage / by amount. Search, filter by person or category, grouped by month with monthly totals. |
+| **Expenses** | Title, amount, currency, exchange rate, who paid, date, category (14 built in for every group, plus each group's own, added from the form), notes. Split evenly / by shares / by percentage / by amount. Search, filter by person or category, grouped by month with monthly totals. |
 | **Currencies** | The full ISO 4217 list with correct decimals (¥ has none, BHD has three). Rates from [Frankfurter](https://frankfurter.app) (ECB, historical) with [ExchangeRate-API](https://www.exchangerate-api.com/docs/free) as fallback for the rest (BAM, RSD, …); cached per pair and day; always editable. |
 | **Balances** | Paid minus share per person, in the group currency. Settle-up suggestions with the fewest payments; *Mark as paid* records a reimbursement. |
+| **Projects (cost centers)** | A group can hold projects you fund up front: costs "for the project" become the payer's claim on it (whole, never split), it stays out of who owes whom, and pays people back later. A payment can *buy into* a project's debt: Radoslav pays Aleksandar 1000 and the project then owes Radoslav that part instead. |
 | **Stats** | Total, per head, your share, by month, by category, who paid vs whose share, which currencies were used. |
 | **Reports** | Pick a group, a period (this month, last month, this year, all time, custom), categories and a person; see totals, per person, by category, by month and the expense list — and export exactly that as a PDF. |
 | **Home** | What you owe and are owed per currency across all groups, your share this month, recent activity. |

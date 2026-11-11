@@ -70,6 +70,7 @@ const P: Record<string, string> = {
   activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
   undo: 'M3 7v6h6M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13',
   move: 'M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20',
+  briefcase: 'M3 7h18v13H3zM8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18',
   dot: 'M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
   // split
   'arrow-right': 'M5 12h14M12 5l7 7-7 7',

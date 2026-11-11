@@ -26,6 +26,7 @@ export default function Home() {
   const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const owe = d.positions.filter(p => p.you_owe > 0)
   const owed = d.positions.filter(p => p.you_are_owed > 0)
+  const claims = d.positions.filter(p => p.claims !== 0)
   return (
     <>
       <PageHeader title={`${hello}, ${user?.name?.split(' ')[0] || 'there'}`} sub={d.groups === 0 ? 'No groups yet. Create one for a trip, a flat or a dinner.' : `${d.groups} active ${d.groups === 1 ? 'group' : 'groups'}${d.archived_groups ? `, ${d.archived_groups} archived` : ''}`}
@@ -34,6 +35,7 @@ export default function Home() {
       <div className="stats">
         <div className="stat"><div className="l"><Icon name="arrow-up" size={14} />You owe</div><div className="n bad">{owe.length ? owe.map(p => <div key={p.currency}><Money minor={p.you_owe} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
         <div className="stat"><div className="l"><Icon name="arrow-down" size={14} />You are owed</div><div className="n ok">{owed.length ? owed.map(p => <div key={p.currency}><Money minor={p.you_are_owed} code={p.currency} /></div>) : <span className="muted">—</span>}</div></div>
+        {claims.length > 0 && <div className="stat" title="Money you fronted for projects (cost centers), which they pay back once they have it. Not part of what people owe you."><div className="l"><Icon name="briefcase" size={14} />Projects owe you</div><div className="n">{claims.map(p => <div key={p.currency}><Money minor={p.claims} code={p.currency} /></div>)}</div></div>}
         <div className="stat"><div className="l"><Icon name="pie" size={14} />Your share this month</div><div className="n">{d.spent_this_month.length ? d.spent_this_month.map(c => <div key={c.currency}><Money minor={c.total} code={c.currency} /></div>) : <span className="muted">—</span>}</div></div>
       </div>
       <div className="two-col">
@@ -57,7 +59,7 @@ export default function Home() {
                     <ul className="who-owes">
                       {g.settlements.map((s, i) => (
                         <li key={i} className={s.from_me ? 'bad' : s.to_me ? 'ok' : 'muted'}>
-                          {s.from_me ? 'You owe ' : <><b>{s.from}</b> owes </>}{s.to_me ? 'you' : <b>{s.to}</b>} <Money minor={s.amount} code={g.currency} />
+                          {s.cost_center && <Icon name="briefcase" size={12} />} {s.from_me ? 'You owe ' : <><b>{s.from}</b> owes </>}{s.to_me ? 'you' : <b>{s.to}</b>} <Money minor={s.amount} code={g.currency} />{s.cost_center && <span className="muted small"> · project</span>}
                         </li>
                       ))}
                     </ul>

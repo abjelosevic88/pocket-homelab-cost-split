@@ -112,8 +112,8 @@ func (h *perUserHarness) json(tok, method, path string, body any, want int, v an
 // anaGroup creates Ana's group with a name-only participant, an expense and a
 // custom category, the way the app looked before groups were per person.
 func (h *perUserHarness) anaGroup() (g store.Group, e store.Expense, cat store.Category) {
-	h.json(h.anaTok, "POST", "/categories", map[string]any{"label": "Ana secret category"}, 201, &cat)
 	h.json(h.anaTok, "POST", "/groups", map[string]any{"name": "Ana private flat", "currency": "EUR", "members": []map[string]any{{"me": true}, {"name": "Sani"}}}, 201, &g)
+	h.json(h.anaTok, "POST", "/categories", map[string]any{"label": "Ana secret category", "group_id": g.ID}, 201, &cat)
 	h.json(h.anaTok, "POST", fmt.Sprintf("/groups/%d/expenses", g.ID), map[string]any{
 		"title": "Rent", "amount": 50000, "currency": "EUR", "paid_by": g.Members[0].ID, "category": cat.ID,
 		"shares": []map[string]any{{"member_id": g.Members[0].ID, "share": 1}, {"member_id": g.Members[1].ID, "share": 1}},
@@ -222,20 +222,30 @@ func TestPerUserAdminHasNoExtraReach(t *testing.T) {
 			t.Fatalf("admin %s on a member's group: %d", m, code)
 		}
 	}
-	// Ben's own category is his; the admin cannot touch it either.
+	// The category of Ben's group is his group's; the admin cannot touch it.
 	var cat store.Category
-	h.json(h.benTok, "POST", "/categories", map[string]any{"label": "Climbing"}, 201, &cat)
-	if !cat.Mine {
-		t.Fatalf("new category not marked as the creator's: %+v", cat)
+	h.json(h.benTok, "POST", fmt.Sprintf("/groups/%d/categories", bg.ID), map[string]any{"label": "Climbing"}, 201, &cat)
+	if !cat.Mine || cat.GroupID != bg.ID {
+		t.Fatalf("new category not the group's: %+v", cat)
 	}
 	if code, _ := h.do(h.anaTok, "PUT", "/categories/"+cat.ID, map[string]any{"label": "x"}); code != 404 {
 		t.Fatalf("admin edited a member's category: %d", code)
 	}
-	// The same name is per person: Ana gets her own "Climbing".
+	// Ana cannot add a category to Ben's group either.
+	if code, _ := h.do(h.anaTok, "POST", "/categories", map[string]any{"label": "x", "group_id": bg.ID}); code != 404 {
+		t.Fatalf("admin added a category to a member's group: %d", code)
+	}
+	// The same name is per group: Ana's group gets its own "Climbing".
+	var ag store.Group
+	h.json(h.anaTok, "POST", "/groups", map[string]any{"name": "Ana's", "currency": "EUR"}, 201, &ag)
 	var anaCat store.Category
-	h.json(h.anaTok, "POST", "/categories", map[string]any{"label": "Climbing"}, 201, &anaCat)
-	if anaCat.ID == cat.ID || !anaCat.Mine {
+	h.json(h.anaTok, "POST", "/categories", map[string]any{"label": "Climbing", "group_id": ag.ID}, 201, &anaCat)
+	if anaCat.ID == cat.ID || !anaCat.Mine || anaCat.GroupID != ag.ID {
 		t.Fatalf("Ana got Ben's category: %+v vs %+v", anaCat, cat)
+	}
+	// Without a group a category has nowhere to go.
+	if code, _ := h.do(h.anaTok, "POST", "/categories", map[string]any{"label": "Loose"}); code != 400 {
+		t.Fatalf("category without a group: %d", code)
 	}
 	// Built-in categories stay box-wide: only an admin changes them.
 	if code, _ := h.do(h.benTok, "PUT", "/categories/groceries", map[string]any{"label": "x"}); code != 403 {
@@ -256,24 +266,20 @@ func TestPerUserSharingThroughMembers(t *testing.T) {
 		t.Fatalf("Ben not resolved as himself: %+v", got)
 	}
 	h.json(h.benTok, "GET", fmt.Sprintf("%s/expenses/%d", gp, e.ID), nil, 200, nil)
-	// The shared group's category reads the same for Ben, but stays Ana's.
+	// The shared group's categories belong to the group: Ben sees and may
+	// change them like Ana.
 	var cats []store.Category
-	h.json(h.benTok, "GET", "/categories", nil, 200, &cats)
+	h.json(h.benTok, "GET", gp+"/categories", nil, 200, &cats)
 	found := false
 	for _, c := range cats {
 		if c.ID == cat.ID {
-			found = true
-			if c.Mine {
-				t.Fatalf("Ana's category marked as Ben's")
-			}
+			found = c.Mine && c.GroupID == g.ID
 		}
 	}
 	if !found {
-		t.Fatalf("Ben does not see the category used in the shared group")
+		t.Fatalf("Ben does not see the shared group's category: %+v", cats)
 	}
-	if code, _ := h.do(h.benTok, "PUT", "/categories/"+cat.ID, map[string]any{"label": "x"}); code != 404 {
-		t.Fatalf("Ben edited Ana's category: %d", code)
-	}
+	h.json(h.benTok, "PUT", "/categories/"+cat.ID, map[string]any{"label": "Rent & co"}, 200, nil)
 	// Ben can add an expense in the shared group…
 	h.json(h.benTok, "POST", gp+"/expenses", map[string]any{"title": "Milk", "amount": 300, "paid_by": ben.ID, "category": cat.ID, "shares": []map[string]any{{"member_id": ben.ID}, {"member_id": g.Members[0].ID}}}, 201, nil)
 	// …but not unlink or remove Ana, nor delete her group.

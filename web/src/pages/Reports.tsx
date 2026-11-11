@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import type { Group } from '../lib/types'
-import { fmtDate, fmtMonth, todayISO } from '../lib/money'
+import { categoriesFor, fmtDate, fmtMonth, todayISO } from '../lib/money'
 import { Card, Empty, Field, Loading, PageHeader, Segmented, useAsync } from '../components/ui'
 import { Money } from '../components/Money'
 import { MemberAvatar } from '../components/people'
@@ -21,6 +21,7 @@ interface Report {
   expenses: { id: number; date: string; title: string; category: string; category_label: string; paid_by: string; amount: number; currency: string; amount_group: number; for: string; notes: string }[]
   currencies: { currency: string; total: number; count: number }[]
   settlements: Debt[]
+  cost_center_debts: Debt[]
   filtered: boolean
 }
 interface Debt { from: number; to: number; from_name: string; to_name: string; amount: number }
@@ -90,7 +91,7 @@ export default function Reports() {
           <Field group label="Person" help="Expenses they paid or took part in."><Select value={member} onChange={setMember} placeholder="Everyone" clearLabel="Everyone" options={(g?.members || []).map(m => ({ value: String(m.id), label: m.name }))} ariaLabel="Person" /></Field>
           <Field group label="Categories" help={cats.length ? `${cats.length} selected` : 'All categories. Click to narrow down.'}>
             <div className="chips">
-              {categories.map(c => <button key={c.id} type="button" className={`chip sm ${cats.includes(c.id) ? 'active' : ''}`} onClick={() => toggleCat(c.id)}>{c.icon} {c.label}</button>)}
+              {(g ? categoriesFor(categories, g.id) : categories).map(c => <button key={c.id} type="button" className={`chip sm ${cats.includes(c.id) ? 'active' : ''}`} onClick={() => toggleCat(c.id)}>{c.icon} {c.label}</button>)}
               {cats.length > 0 && <button type="button" className="chip sm ghost" onClick={() => setCats([])}><Icon name="x" size={12} />Clear</button>}
             </div>
           </Field>
@@ -111,6 +112,11 @@ export default function Reports() {
             <Card title="Who owes whom" className="owes-card">
               <p className="muted small">Open debts in the group as of today, counting every expense and payment made so far. Paying these settles everything with the fewest transfers.</p>
               <DebtList debts={rep.settlements} cur={cur} />
+              {rep.cost_center_debts?.length > 0 && <>
+                <h4 className="mt"><Icon name="briefcase" size={14} /> What projects owe back</h4>
+                <p className="muted small">Money people fronted for a project (cost center), paid back once it has it. Not part of the personal debts above.</p>
+                <DebtList debts={rep.cost_center_debts} cur={cur} />
+              </>}
             </Card>
           )}
           {rep.count === 0 ? <Empty icon="search" title="Nothing in this selection">Widen the period or clear the filters.</Empty> : (

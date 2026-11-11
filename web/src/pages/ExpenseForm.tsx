@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
-import type { Expense, FxAnswer, Group, SplitMode } from '../lib/types'
-import { decimalsOf, fmtMoney, SPLIT_LABEL, todayISO } from '../lib/money'
+import type { Balances, Expense, FxAnswer, Group, SplitMode } from '../lib/types'
+import { categoriesFor, decimalsOf, fmtMoney, isCC, SPLIT_LABEL, todayISO } from '../lib/money'
 import { Card, Confirm, Empty, Field, Loading, PageHeader, Segmented, useAsync, useToast } from '../components/ui'
 import { Money, MoneyInput, CurrencySelect } from '../components/Money'
 import { MemberAvatar } from '../components/people'
@@ -49,6 +49,10 @@ export default function ExpenseForm() {
   const [notes, setNotes] = useState('')
   const [mode, setMode] = useState<SplitMode>('even')
   const [reimb, setReimb] = useState(false)
+  // A cost for a cost center (project): the whole amount becomes the payer's claim on it.
+  const [forCC, setForCC] = useState(0)
+  // A payment that buys into a cost center's debt to the person paid (0 = personal).
+  const [viaCC, setViaCC] = useState(0)
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
   const [del, setDel] = useState(false)
@@ -60,11 +64,15 @@ export default function ExpenseForm() {
     if (editing && existing) {
       setTitle(existing.title); setAmount(existing.amount); setCurrency(existing.currency); setRate(String(existing.fx_rate)); setPaidBy(String(existing.paid_by))
       setDate(existing.date); setCategory(existing.category || fallbackCat); setNotes(existing.notes); setMode(existing.split_mode); setReimb(existing.reimbursement)
-      setRows(g.members.map(m => { const s = existing.shares.find(x => x.member_id === m.id); return { member_id: m.id, on: Boolean(s), share: s ? s.share : null } }))
+      setViaCC(existing.cost_center_id || 0)
+      const only = existing.shares.length === 1 ? g.members.find(m => m.id === existing.shares[0].member_id) : undefined
+      const ccOnly = !existing.reimbursement && only && isCC(only) ? only.id : 0
+      setForCC(ccOnly)
+      setRows(g.members.map(m => { const s = existing.shares.find(x => x.member_id === m.id); return { member_id: m.id, on: ccOnly ? !isCC(m) : Boolean(s), share: s && !ccOnly ? s.share : null } }))
       rateTouched.current = true
     } else if (!editing) {
-      setCurrency(g.currency); setPaidBy(String(g.my_member_id || g.members[0]?.id || ''))
-      setRows(g.members.map(m => ({ member_id: m.id, on: true, share: null })))
+      setCurrency(g.currency); setPaidBy(String(g.my_member_id || g.members.find(m => !isCC(m))?.id || ''))
+      setRows(g.members.map(m => ({ member_id: m.id, on: !isCC(m), share: null })))
     }
     setReady(true)
   }, [g, existing, loadingE, editing, ready])
@@ -92,8 +100,13 @@ export default function ExpenseForm() {
     return Math.round((amount / Math.pow(10, dExp)) * rateNum * Math.pow(10, dGrp))
   }, [amount, foreign, rateNum, dExp, dGrp, g])
 
+  const centers = (g?.members || []).filter(m => isCC(m))
+  // What each cost center owes whom, for the "buys into" option on payments.
+  const { data: bal } = useAsync(() => g && centers.length ? api.get<Balances>(`${V1}/groups/${g.id}/balances`) : Promise.resolve(null), [g?.id, centers.length])
+  const claimOf = (cc: number, who: number) => bal?.cost_centers.find(c => c.member_id === cc)?.claims.find(c => c.member_id === who)?.amount || 0
+
   // Live preview of each person's part.
-  const active = rows.filter(r => r.on)
+  const active = rows.filter(r => r.on && (reimb || !forCC))
   const preview = useMemo(() => {
     if (amount == null || active.length === 0) return null
     const weights = active.map(r => mode === 'even' ? 1 : (r.share ?? 0))
@@ -113,26 +126,41 @@ export default function ExpenseForm() {
     if (m === 'amount' && amount != null) setRows(rs => { const on = rs.filter(r => r.on); const parts = apportion(amount, on.map(() => 1)); let i = 0; return rs.map(r => r.on ? { ...r, share: parts[i++] } : r) })
   }
   const toggleReimb = (on: boolean) => {
-    setReimb(on); setMode('even')
-    if (on) { setTitle(t => t || 'Reimbursement'); const other = g.members.find(m => String(m.id) !== paidBy); setRows(rs => rs.map(r => ({ ...r, on: other ? r.member_id === other.id : false, share: null }))) }
-    else setRows(rs => rs.map(r => ({ ...r, on: true, share: null })))
+    setReimb(on); setMode('even'); setForCC(0); setViaCC(0)
+    if (on) { setTitle(t => t || 'Reimbursement'); const other = g.members.find(m => String(m.id) !== paidBy && !isCC(m)) || g.members.find(m => String(m.id) !== paidBy); setRows(rs => rs.map(r => ({ ...r, on: other ? r.member_id === other.id : false, share: null }))) }
+    else {
+      setRows(rs => rs.map(r => ({ ...r, on: !isCC(g.members.find(m => m.id === r.member_id)), share: null })))
+      if (isCC(g.members.find(m => String(m.id) === paidBy))) setPaidBy(String(g.my_member_id || g.members.find(m => !isCC(m))?.id || ''))
+    }
+  }
+  const pickFor = (cc: number) => {
+    setForCC(cc)
+    if (cc) setMode('even')
   }
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (amount == null || amount === 0) { toast('Enter the amount', 'err'); return }
     if (foreign && !(rateNum > 0)) { toast('Enter the exchange rate', 'err'); return }
-    if (active.length === 0) { toast('Pick who it was for', 'err'); return }
+    if (active.length === 0 && !forCC) { toast('Pick who it was for', 'err'); return }
     if (preview && !preview.ok) { toast(mode === 'percent' ? 'Percentages must add up to 100' : mode === 'amount' ? 'The amounts must add up to the total' : 'Shares must be positive', 'err'); return }
     setBusy(true)
-    const body = { title, amount, currency, fx_rate: foreign ? rateNum : 1, paid_by: Number(paidBy), date, category: reimb ? '' : category, notes, split_mode: mode, reimbursement: reimb,
-      shares: active.map(r => ({ member_id: r.member_id, share: mode === 'even' ? 1 : (r.share ?? 0) })) }
+    const body = { title, amount, currency, fx_rate: foreign ? rateNum : 1, paid_by: Number(paidBy), date, category: reimb ? '' : category, notes, split_mode: forCC ? 'even' : mode, reimbursement: reimb,
+      cost_center_id: canBuyIn ? viaCC : 0,
+      shares: forCC && !reimb ? [{ member_id: forCC, share: 1 }] : active.map(r => ({ member_id: r.member_id, share: mode === 'even' ? 1 : (r.share ?? 0) })) }
     try {
       if (editing) await api.put(`${V1}/groups/${g.id}/expenses/${eid}`, body); else await api.post(`${V1}/groups/${g.id}/expenses`, body)
       toast(editing ? 'Saved' : 'Expense added'); reloadGroups().catch(() => {}); navigate(`/groups/${g.id}`)
     } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) }
   }
   const remove = async () => { try { await api.del(`${V1}/groups/${g.id}/expenses/${eid}`); toast('Deleted'); navigate(`/groups/${g.id}`) } catch (e) { toast((e as Error).message, 'err') } }
-  const memberOpts = g.members.map(m => ({ value: String(m.id), label: m.name }))
+  // A cost center never pays for things itself; it only pays people back.
+  const memberOpts = g.members.filter(m => reimb || !isCC(m)).map(m => ({ value: String(m.id), label: isCC(m) ? `${m.name} (project)` : m.name }))
+  const groupCats = categoriesFor(categories, g.id)
+  const payer = g.members.find(m => String(m.id) === paidBy)
+  const toId = reimb && active.length === 1 ? active[0].member_id : 0
+  const toM = g.members.find(m => m.id === toId)
+  const canBuyIn = reimb && centers.length > 0 && payer && !isCC(payer) && toM && !isCC(toM) && toM.id !== payer.id
+  const ccName = (id: number) => g.members.find(m => m.id === id)?.name || '?'
   const fmtPct = (bp: number | null) => bp == null ? '' : (bp / 100).toFixed(2).replace(/\.?0+$/, '')
 
   return (
@@ -164,33 +192,41 @@ export default function ExpenseForm() {
               <Field label="Date"><input type="date" value={date} onChange={e => { setDate(e.target.value); if (!rateTouched.current) setRateInfo(null) }} required /></Field>
             </div>
             {!reimb && (
-              <Field group label="Category" help="Type a name that is not in the list to add it.">
-                <Select value={category} onChange={setCategory} options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Category" createLabel="Add category"
-                  onCreate={async label => { const c = await api.post<{ id: string }>(`${V1}/categories`, { label }); await reloadMeta(); return c.id }} />
+              <Field group label="Category" help={`Type a name that is not in the list to add it to ${g.name}.`}>
+                <Select value={category} onChange={setCategory} options={groupCats.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Category" createLabel="Add category"
+                  onCreate={async label => { const c = await api.post<{ id: string }>(`${V1}/groups/${g.id}/categories`, { label }); await reloadMeta(); return c.id }} />
               </Field>
             )}
             <Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={reimb ? 'Cash, bank transfer…' : 'Anything worth remembering'} /></Field>
           </div>
         </Card>
         <Card title={<><Icon name="users" size={16} />{reimb ? 'To whom' : 'For whom'}</>}>
-          {!reimb && (
+          {!reimb && centers.length > 0 && (
+            <div className="mb">
+              <Segmented size="sm" value={String(forCC)} onChange={v => pickFor(Number(v))} options={[{ value: '0', label: 'People' }, ...centers.map(c => ({ value: String(c.id), label: c.name }))]} />
+              {forCC > 0 && <p className="muted small mt-sm"><Icon name="briefcase" size={13} /> The whole {amount != null ? fmtMoney(amount, currency, dExp) : 'amount'} goes on <b>{ccName(forCC)}</b>: it becomes {payer ? <b>{payer.name}</b> : 'the payer'}’s claim on it, paid back once {ccName(forCC)} has the money. Nobody’s personal share changes.</p>}
+            </div>
+          )}
+          {!reimb && !forCC && (
             <div className="row wrap mb">
               <Segmented size="sm" value={mode} onChange={changeMode} options={(['even', 'shares', 'percent', 'amount'] as SplitMode[]).map(m => ({ value: m, label: SPLIT_LABEL[m] }))} />
               <span className="spacer" />
-              <button type="button" className="btn ghost sm" onClick={() => setRows(rs => rs.map(r => ({ ...r, on: true })))}>All</button>
+              <button type="button" className="btn ghost sm" onClick={() => setRows(rs => rs.map(r => ({ ...r, on: !isCC(g.members.find(m => m.id === r.member_id)) })))}>All</button>
               <button type="button" className="btn ghost sm" onClick={() => setRows(rs => rs.map(r => ({ ...r, on: false })))}>None</button>
             </div>
           )}
-          <div className="split-list">
+          {!(forCC && !reimb) && <div className="split-list">
             {rows.map((r, idx) => {
               const m = g.members.find(x => x.id === r.member_id)!
+              // People only, unless it is a payment (a project can be paid into) or an old split that still has one.
+              if (isCC(m) && !reimb && !r.on) return null
               const i = active.findIndex(a => a.member_id === r.member_id)
               const part = preview && i >= 0 ? preview.parts[i] : null
               return (
                 <label key={r.member_id} className={`split-row ${r.on ? 'on' : ''}`}>
                   <input type={reimb ? 'radio' : 'checkbox'} name={reimb ? 'to' : undefined} checked={r.on} onChange={e => reimb ? setRows(rs => rs.map(x => ({ ...x, on: x.member_id === r.member_id }))) : setRow(r.member_id, { on: e.target.checked })} />
                   <MemberAvatar member={m} me={m.id === g.my_member_id} />
-                  <span className="nm">{m.name}{m.id === g.my_member_id && <span className="muted"> (you)</span>}</span>
+                  <span className="nm">{m.name}{m.id === g.my_member_id && <span className="muted"> (you)</span>}{isCC(m) && <span className="badge cat cc-badge">project</span>}</span>
                   <span className="spacer" />
                   {r.on && mode === 'shares' && <span className="row"><input type="number" min={0} step={1} value={r.share ?? ''} onChange={e => setRow(r.member_id, { share: e.target.value === '' ? null : Math.max(0, Math.floor(Number(e.target.value))) })} className="num" aria-label={`Shares for ${m.name}`} /><span className="muted small">shares</span></span>}
                   {r.on && mode === 'percent' && <span className="row"><input inputMode="decimal" value={fmtPct(r.share)} onChange={e => { const v = e.target.value.replace(',', '.'); setRow(r.member_id, { share: v === '' ? null : Math.round(Number(v) * 100) }) }} className="num" aria-label={`Percent for ${m.name}`} /><span className="muted small">%</span></span>}
@@ -200,7 +236,14 @@ export default function ExpenseForm() {
                 </label>
               )
             })}
-          </div>
+          </div>}
+          {canBuyIn && (
+            <div className="buy-in mt">
+              <Field group label="What is this payment?" help={viaCC ? `${payer!.name} takes over ${amount != null ? fmtMoney(amount, currency, dExp) : 'this amount'} of what ${ccName(viaCC)} owes ${toM!.name} (${fmtMoney(claimOf(viaCC, toM!.id), g.currency, dGrp)} now). Afterwards ${ccName(viaCC)} owes ${payer!.name} that part instead; nobody owes anybody personally.` : `${payer!.name} pays back a personal debt to ${toM!.name}.`}>
+                <Segmented size="sm" value={String(viaCC)} onChange={v => setViaCC(Number(v))} options={[{ value: '0', label: 'Personal payment' }, ...centers.map(c => ({ value: String(c.id), label: `Buys into ${c.name}` }))]} />
+              </Field>
+            </div>
+          )}
           {preview && !preview.ok && <div className="callout danger mt-sm"><Icon name="alert" size={15} /><span>{mode === 'percent' ? `Percentages add up to ${fmtPct(active.reduce((a, r) => a + (r.share ?? 0), 0))} %, not 100.` : mode === 'amount' ? `The amounts add up to ${fmtMoney(active.reduce((a, r) => a + (r.share ?? 0), 0), currency, dExp)}, not ${fmtMoney(amount ?? 0, currency, dExp)}.` : 'Give at least one person a share.'}</span></div>}
           {reimb && active.length === 1 && String(active[0].member_id) === paidBy && <div className="callout danger mt-sm"><Icon name="alert" size={15} /><span>Pick someone other than the payer.</span></div>}
           <div className="form-actions mt">

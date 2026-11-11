@@ -16,7 +16,7 @@ func TestBuildLeavesPaymentsOut(t *testing.T) {
 		{ID: 2, Title: "Reimbursement", Date: "2026-10-05", Currency: "EUR", Amount: 70000, AmountGroup: 70000, PaidBy: 2, Reimbursement: true,
 			Shares: []store.Share{{MemberID: 1, AmountGroup: 70000}}},
 	}
-	r := Build(g, nil, exps, nil, Filter{}, "test")
+	r := Build(g, nil, exps, nil, nil, Filter{}, "test")
 	if r.Total != 210522 || r.Count != 1 || len(r.Expenses) != 1 {
 		t.Fatalf("total %d count %d expenses %d", r.Total, r.Count, len(r.Expenses))
 	}

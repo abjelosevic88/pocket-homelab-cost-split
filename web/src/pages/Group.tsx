@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
-import type { Activity, Balances, Expense, Group as GroupT, GroupStats, Member } from '../lib/types'
-import { ago, decimalsOf, fmtDate, fmtMonth, listNames, memberName, SPLIT_LABEL, todayISO, useDebounceValue } from '../lib/money'
-import { Card, Confirm, Empty, Field, Loading, Modal, PageHeader, Tabs, useAsync, useToast } from '../components/ui'
+import type { Activity, Balances, CostCenterPosition, Expense, Group as GroupT, GroupStats, Member } from '../lib/types'
+import { ago, categoriesFor, decimalsOf, fmtDate, fmtMonth, isCC, listNames, memberName, peopleOf, SPLIT_LABEL, todayISO, useDebounceValue } from '../lib/money'
+import { Card, Confirm, Empty, Field, Loading, Modal, PageHeader, Segmented, Tabs, useAsync, useToast } from '../components/ui'
 import { Money, CurrencySelect } from '../components/Money'
 import { GroupIcon, MemberAvatar, MemberStack } from '../components/people'
 import { Icon } from '../components/icons'
@@ -62,7 +62,7 @@ function Expenses({ g }: { g: GroupT }) {
       <div className="toolbar">
         <div className="search"><Icon name="search" size={15} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search expenses…" aria-label="Search expenses" /></div>
         <Select value={member} onChange={setMember} placeholder="Everyone" clearLabel="Everyone" options={g.members.map(m => ({ value: String(m.id), label: m.name }))} ariaLabel="Filter by member" />
-        <Select value={cat} onChange={setCat} placeholder="All categories" clearLabel="All categories" options={categories.map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Filter by category" />
+        <Select value={cat} onChange={setCat} placeholder="All categories" clearLabel="All categories" options={categoriesFor(categories, g.id).map(c => ({ value: c.id, label: `${c.icon} ${c.label}` }))} ariaLabel="Filter by category" />
       </div>
       {loading && !data ? <Loading /> : !data || data.expenses.length === 0 ? (
         <Empty icon={q || member || cat ? 'search' : 'receipt'} title={q || member || cat ? 'Nothing matches' : 'No expenses yet'}>{!(q || member || cat) && !g.archived && <>Add the first one with <b>Add expense</b>.</>}</Empty>
@@ -83,14 +83,15 @@ function ExpenseRow({ e, g, icon }: { e: Expense; g: GroupT; icon: string }) {
   const paidByMe = e.paid_by === g.my_member_id
   const myNet = (paidByMe ? e.amount_group : 0) - (mine ? mine.amount_group : 0)
   const foreign = e.currency !== g.currency
+  const forCenter = !e.reimbursement && e.shares.length === 1 ? g.members.find(m => m.id === e.shares[0].member_id && isCC(m)) : undefined
   if (e.reimbursement) {
     const to = e.shares[0]?.member_id
     return (
       <Link to={`/groups/${g.id}/expenses/${e.id}`} className="expense-row reimb">
-        <span className="ico"><Icon name="transfer" size={17} /></span>
+        <span className="ico"><Icon name={e.cost_center_id ? 'briefcase' : 'transfer'} size={17} /></span>
         <span className="info">
-          <span className="nm">{memberName(g.members, e.paid_by)} paid {memberName(g.members, to)}</span>
-          <span className="meta">{fmtDate(e.date, false)} · payment{e.title && e.title !== 'Reimbursement' ? ` · ${e.title}` : ''}{e.notes && ` · ${e.notes}`}</span>
+          <span className="nm">{memberName(g.members, e.paid_by)} paid {memberName(g.members, to)}{e.cost_center_id > 0 && <span className="badge cat cc-badge">buys into {memberName(g.members, e.cost_center_id)}</span>}</span>
+          <span className="meta">{fmtDate(e.date, false)} · {e.cost_center_id ? `${memberName(g.members, e.cost_center_id)} now owes ${memberName(g.members, e.paid_by)} this part instead of ${memberName(g.members, to)}` : 'payment'}{e.title && e.title !== 'Reimbursement' ? ` · ${e.title}` : ''}{e.notes && ` · ${e.notes}`}</span>
         </span>
         <span className="side">
           <b><Money minor={e.amount} code={e.currency} /></b>
@@ -104,12 +105,13 @@ function ExpenseRow({ e, g, icon }: { e: Expense; g: GroupT; icon: string }) {
       <span className="ico" title={e.category}>{icon}</span>
       <span className="info">
         <span className="nm">{e.title}</span>
-        <span className="meta">{fmtDate(e.date, false)} · <b>{memberName(g.members, e.paid_by)}</b> paid for {listNames(g.members, e.shares.map(s => s.member_id))}{e.split_mode !== 'even' && <span className="badge split-badge">{SPLIT_LABEL[e.split_mode]}</span>}{e.source && <span className="muted"> · via Pocket {e.source.charAt(0).toUpperCase() + e.source.slice(1)}</span>}</span>
+        <span className="meta">{fmtDate(e.date, false)} · <b>{memberName(g.members, e.paid_by)}</b> {forCenter ? <>fronted for <b>{forCenter.name}</b></> : <>paid for {listNames(g.members, e.shares.map(s => s.member_id))}</>}{e.split_mode !== 'even' && <span className="badge split-badge">{SPLIT_LABEL[e.split_mode]}</span>}{e.source && <span className="muted"> · via Pocket {e.source.charAt(0).toUpperCase() + e.source.slice(1)}</span>}</span>
       </span>
       <span className="side">
         <b><Money minor={e.amount} code={e.currency} /></b>
         {foreign && <span className="muted small">= <Money minor={e.amount_group} code={g.currency} /></span>}
-        {g.my_member_id > 0 && (mine || paidByMe) && <span className={`small ${myNet > 0 ? 'ok' : myNet < 0 ? 'bad' : 'muted'}`}>{myNet > 0 ? 'you lent' : myNet < 0 ? 'you owe' : 'even'} {myNet !== 0 && <Money minor={Math.abs(myNet)} code={g.currency} />}</span>}
+        {forCenter ? (paidByMe && <span className="small ok">{forCenter.name} owes you</span>)
+          : g.my_member_id > 0 && (mine || paidByMe) && <span className={`small ${myNet > 0 ? 'ok' : myNet < 0 ? 'bad' : 'muted'}`}>{myNet > 0 ? 'you lent' : myNet < 0 ? 'you owe' : 'even'} {myNet !== 0 && <Money minor={Math.abs(myNet)} code={g.currency} />}</span>}
       </span>
     </Link>
   )
@@ -120,7 +122,7 @@ function ExpenseRow({ e, g, icon }: { e: Expense; g: GroupT; icon: string }) {
 function BalancesTab({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
   const { toast } = useToast()
   const { data, loading, reload } = useAsync(() => api.get<Balances>(`${V1}/groups/${g.id}/balances`), [g.id, g.updated_at])
-  const [pay, setPay] = useState<{ from: number; to: number; amount: number } | null>(null)
+  const [pay, setPay] = useState<PayInit | null>(null)
   if (loading && !data) return <Loading />
   if (!data) return null
   const max = Math.max(1, ...data.balances.map(b => Math.abs(b.balance)))
@@ -129,7 +131,7 @@ function BalancesTab({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
   return (
     <div className="two-col">
       <Card title={<><Icon name="scale" size={16} />Balances</>}>
-        <p className="muted small">What each person paid for the group minus their part of everything, in {g.currency}. Positive: the group owes them.</p>
+        <p className="muted small">What each person paid for the group minus their part of everything, in {g.currency}. Positive: the group owes them.{data.cost_centers.length > 0 && ' Money fronted for a project is not in here: it is under the project below.'}</p>
         <div className="balance-list">
           {data.balances.map(b => {
             const m = g.members.find(x => x.id === b.member_id)!
@@ -163,30 +165,73 @@ function BalancesTab({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
             </ul>
           </>
         )}
-        {!g.archived && <div className="mt"><button type="button" className="btn ghost sm" onClick={() => setPay({ from: g.my_member_id || g.members[0].id, to: g.members.find(m => m.id !== (g.my_member_id || g.members[0].id))?.id || g.members[0].id, amount: 0 })}><Icon name="plus" size={14} />Record another payment…</button></div>}
+        {!g.archived && <div className="mt"><button type="button" className="btn ghost sm" onClick={() => { const people = peopleOf(g.members); const from = g.my_member_id || people[0].id; setPay({ from, to: people.find(m => m.id !== from)?.id || from, amount: 0 }) }}><Icon name="plus" size={14} />Record another payment…</button></div>}
       </Card>
+      {data.cost_centers.map(cc => <CostCenterCard key={cc.member_id} g={g} cc={cc} onPay={setPay} />)}
       {pay && <PayModal g={g} initial={pay} onClose={() => setPay(null)} onSaved={() => { setPay(null); reload(); onChanged(); toast('Payment recorded') }} />}
     </div>
   )
 }
 
-function PayModal({ g, initial, onClose, onSaved }: { g: GroupT; initial: { from: number; to: number; amount: number }; onClose: () => void; onSaved: () => void }) {
+/** A payment to record: from → to, optionally buying into a cost center's debt to "to". */
+type PayInit = { from: number; to: number; amount: number; via?: number }
+
+function CostCenterCard({ g, cc, onPay }: { g: GroupT; cc: CostCenterPosition; onPay: (p: PayInit) => void }) {
+  const m = g.members.find(x => x.id === cc.member_id)!
+  const name = (id: number) => memberName(g.members, id)
+  const people = peopleOf(g.members)
+  return (
+    <Card title={<><Icon name="briefcase" size={16} />{m.name}<span className="badge cat cc-badge">project</span></>}>
+      <p className="muted small">What {m.name} owes back to whoever fronted money for it, in {g.currency}. It is not a person: it has no share of its own and stays out of who owes whom.</p>
+      <div className="stats compact">
+        <div className="stat"><div className="n"><Money minor={cc.owes} code={g.currency} /></div><div className="l">owes in total</div></div>
+        <div className="stat"><div className="n"><Money minor={cc.charged} code={g.currency} /></div><div className="l">fronted for it</div></div>
+        <div className="stat"><div className="n"><Money minor={cc.repaid} code={g.currency} /></div><div className="l">paid back</div></div>
+      </div>
+      {cc.claims.length === 0 ? <Empty icon="check-circle" title="Owes nobody">Nothing fronted for {m.name} is open.</Empty> : (
+        <ul className="settle-list">
+          {cc.claims.map(c => {
+            const other = people.find(p => p.id !== c.member_id)
+            return (
+              <li key={c.member_id}>
+                <span className="row wrap grow">{c.amount > 0 ? <><b>{m.name}</b> owes <MemberAvatar member={{ id: c.member_id, name: name(c.member_id) }} me={c.member_id === g.my_member_id} /><b>{name(c.member_id)}</b></> : <><MemberAvatar member={{ id: c.member_id, name: name(c.member_id) }} /><b>{name(c.member_id)}</b> owes <b>{m.name}</b></>}</span>
+                <b><Money minor={Math.abs(c.amount)} code={g.currency} /></b>
+                {!g.archived && c.amount > 0 && (
+                  <span className="row">
+                    <button type="button" className="btn sm" onClick={() => onPay({ from: m.id, to: c.member_id, amount: c.amount })} title={`${m.name} pays ${name(c.member_id)} back`}><Icon name="check" size={14} />Paid back</button>
+                    {other && <button type="button" className="btn ghost sm" onClick={() => onPay({ from: other.id, to: c.member_id, amount: 0, via: m.id })} title={`Someone pays ${name(c.member_id)} and takes over part of this claim`}><Icon name="transfer" size={14} />Buy in…</button>}
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+function PayModal({ g, initial, onClose, onSaved }: { g: GroupT; initial: PayInit; onClose: () => void; onSaved: () => void }) {
   const { toast } = useToast()
   const { currencies } = useApp()
   const [from, setFrom] = useState(String(initial.from))
   const [to, setTo] = useState(String(initial.to))
+  const [via, setVia] = useState(initial.via || 0)
   const [currency, setCurrency] = useState(g.currency)
   const [amount, setAmount] = useState<number | null>(initial.amount || null)
   const [date, setDate] = useState(todayISO())
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
-  const opts = g.members.map(m => ({ value: String(m.id), label: m.name }))
+  const opts = g.members.map(m => ({ value: String(m.id), label: isCC(m) ? `${m.name} (project)` : m.name }))
+  const centers = g.members.filter(m => isCC(m))
+  const fromM = g.members.find(m => String(m.id) === from), toM = g.members.find(m => String(m.id) === to)
+  const canBuyIn = centers.length > 0 && fromM && toM && !isCC(fromM) && !isCC(toM) && from !== to
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!amount || from === to) { toast(from === to ? 'Pick two different people' : 'Enter the amount', 'err'); return }
     setBusy(true)
     try {
-      await api.post(`${V1}/groups/${g.id}/expenses`, { title: 'Reimbursement', amount, currency, paid_by: Number(from), date, notes, split_mode: 'even', reimbursement: true, shares: [{ member_id: Number(to), share: 1 }] })
+      await api.post(`${V1}/groups/${g.id}/expenses`, { title: 'Reimbursement', amount, currency, paid_by: Number(from), date, notes, split_mode: 'even', reimbursement: true, cost_center_id: canBuyIn ? via : 0, shares: [{ member_id: Number(to), share: 1 }] })
       onSaved()
     } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) }
   }
@@ -200,6 +245,11 @@ function PayModal({ g, initial, onClose, onSaved }: { g: GroupT; initial: { from
         <Field group label="Amount" help={currency !== g.currency ? `Converted to ${g.currency} at the day's rate.` : undefined}>
           <div className="amount-field"><CurrencySelect value={currency} onChange={setCurrency} /><MoneyInputLazy value={amount} code={currency} onChange={setAmount} autoFocus /></div>
         </Field>
+        {canBuyIn && (
+          <Field group label="What is it?" help={via ? `${fromM!.name} takes over this much of what ${memberName(g.members, via)} owes ${toM!.name}: afterwards ${memberName(g.members, via)} owes ${fromM!.name} that part. Nobody owes anybody personally.` : `${fromM!.name} pays back a personal debt to ${toM!.name}.`}>
+            <Segmented size="sm" value={via} onChange={setVia} options={[{ value: 0, label: 'Personal payment' }, ...centers.map(c => ({ value: c.id, label: `Buys into ${c.name}` }))]} />
+          </Field>
+        )}
         <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} max={todayISO()} /></Field>
         <Field label="Note"><input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Cash, bank transfer…" /></Field>
         <div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button></div>
@@ -222,7 +272,7 @@ function Stats({ g }: { g: GroupT }) {
   const maxCat = Math.max(1, ...st.categories.map(c => c.total))
   const maxMem = Math.max(1, ...st.members.map(m => Math.max(m.paid, m.share)))
   const cat = (id: string) => categories.find(c => c.id === id) || { icon: '🧾', label: id }
-  const perHead = Math.round(st.total / Math.max(1, g.members.length))
+  const perHead = Math.round(st.total / Math.max(1, peopleOf(g.members).length))
   const mine = st.members.find(m => m.member_id === g.my_member_id)
   return (
     <>
@@ -261,7 +311,7 @@ function Stats({ g }: { g: GroupT }) {
               const mem = g.members.find(x => x.id === m.member_id)!
               return (
                 <div key={m.member_id} className="member-bars">
-                  <span className="row"><MemberAvatar member={mem} /><b>{mem.name}</b><span className="muted small">{m.count} paid</span></span>
+                  <span className="row"><MemberAvatar member={mem} /><b>{mem.name}</b>{isCC(mem) ? <span className="badge cat cc-badge">project</span> : <span className="muted small">{m.count} paid</span>}</span>
                   <div className="rb-row"><span className="l">paid</span><span className="track"><span className="b paid" style={{ width: `${Math.round((m.paid / maxMem) * 100)}%` }} /></span><span className="n"><Money minor={m.paid} code={g.currency} /></span></div>
                   <div className="rb-row"><span className="l">share</span><span className="track"><span className="b" style={{ width: `${Math.round((m.share / maxMem) * 100)}%` }} /></span><span className="n"><Money minor={m.share} code={g.currency} /></span></div>
                 </div>
@@ -326,7 +376,8 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
   const othersAccount = (m: Member) => !!m.user_id && m.user_id !== user?.id && !canManage
   const run = async (fn: () => Promise<unknown>, msg: string) => { setBusy(true); try { await fn(); onChanged(); reloadGroups().catch(() => {}); toast(msg) } catch (e) { toast((e as Error).message, 'err') } finally { setBusy(false) } }
   const save = (e: React.FormEvent) => { e.preventDefault(); run(() => api.put(`${V1}/groups/${g.id}`, f), 'Saved') }
-  const addName = () => { const n = newName.trim(); if (!n) return; run(async () => { await api.post(`${V1}/groups/${g.id}/members`, { name: n }); setNewName('') }, `${n} added`) }
+  const addName = (kind: 'person' | 'cost_center' = 'person') => { const n = newName.trim(); if (!n) return; run(async () => { await api.post(`${V1}/groups/${g.id}/members`, { name: n, kind }); setNewName('') }, kind === 'cost_center' ? `Project ${n} added` : `${n} added`) }
+  const setKind = (m: Member, kind: 'person' | 'cost_center') => run(() => api.put(`${V1}/groups/${g.id}/members/${m.id}`, { kind }), kind === 'cost_center' ? `${m.name} is a project now` : `${m.name} is a person now`)
   const addUser = (id: string) => { if (!id) return; run(() => api.post(`${V1}/groups/${g.id}/members`, { user_id: Number(id) }), 'Added') }
   const link = (m: Member, id: string) => run(() => api.put(`${V1}/groups/${g.id}/members/${m.id}`, { user_id: id ? Number(id) : 0 }), id ? 'Linked' : 'Unlinked')
   const remove = (m: Member) => run(() => api.del(`${V1}/groups/${g.id}/members/${m.id}`), `${m.name} removed`)
@@ -358,6 +409,7 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
       </div>
       <Card title={<><Icon name="users" size={16} />People</>}>
         <p className="muted small">Anyone can be added by name. Only the people linked to an account here (and whoever created the group) see it: link a person to their account so they see the group, their balance and “you” in the lists. Someone who paid or shares an expense cannot be removed.</p>
+        <p className="muted small">A <b>project</b> (cost center) is not a person: it never gets a share of a split and stays out of who owes whom. Costs “for the project” become claims of whoever paid, and it pays them back later. Turn a stand-in member you used for this into a project with <b>Make a project</b>.</p>
         <table className="table compact">
           <tbody>
             {g.members.map(m => {
@@ -365,10 +417,13 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
               return (
                 <tr key={m.id}>
                   <td style={{ width: 32 }}><MemberAvatar member={m} me={m.id === g.my_member_id} /></td>
-                  <td><b>{m.name}</b>{m.id === g.my_member_id && <span className="badge you-badge">you</span>}<div className="muted small">{u ? u.email : 'no account'}</div></td>
+                  <td><b>{m.name}</b>{m.id === g.my_member_id && <span className="badge you-badge">you</span>}{isCC(m) && <span className="badge cat cc-badge">project</span>}<div className="muted small">{isCC(m) ? 'cost center: no share, only pays back' : u ? u.email : 'no account'}</div></td>
                   <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                    {isCC(m) ? <button type="button" className="btn ghost sm" disabled={busy} onClick={() => setKind(m, 'person')} title="Treat it as a person again">Make a person</button> : <>
                     <Select className="link-user" value={m.user_id ? String(m.user_id) : ''} onChange={v => link(m, v)} disabled={othersAccount(m)} placeholder="Link account…" clearLabel="Unlink" ariaLabel={`Link ${m.name} to an account`}
                       options={users.filter(u => u.id === m.user_id || !g.members.some(x => x.user_id === u.id)).map(u => ({ value: String(u.id), label: u.name || u.email, hint: u.email }))} />
+                    {!m.user_id && <button type="button" className="btn ghost sm" disabled={busy} onClick={() => setKind(m, 'cost_center')} title="A project you fund up front: it never carries a share and only owes back what was fronted for it">Make a project</button>}
+                    </>}
                   </td>
                   <td className="right" style={{ whiteSpace: 'nowrap' }}>
                     <button type="button" className="btn ghost icon-only sm" onClick={() => setRename(m)} title="Rename" aria-label={`Rename ${m.name}`}><Icon name="edit" size={15} /></button>
@@ -380,8 +435,9 @@ function GroupSettings({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
           </tbody>
         </table>
         <div className="row wrap mt">
-          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Add someone by name…" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addName() } }} style={{ flex: '1 1 160px' }} aria-label="New member name" />
-          <button type="button" className="btn" onClick={addName} disabled={busy || !newName.trim()}><Icon name="plus" size={15} />Add</button>
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Add someone (or a project) by name…" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addName() } }} style={{ flex: '1 1 160px' }} aria-label="New member name" />
+          <button type="button" className="btn" onClick={() => addName()} disabled={busy || !newName.trim()}><Icon name="plus" size={15} />Add</button>
+          <button type="button" className="btn ghost" onClick={() => addName('cost_center')} disabled={busy || !newName.trim()} title="A cost center: a project you fund up front that pays you back later"><Icon name="briefcase" size={15} />Add as project</button>
           {freeUsers.length > 0 && <Select className="user-add" value="" onChange={addUser} placeholder="Someone with an account…" options={freeUsers.map(u => ({ value: String(u.id), label: u.name || u.email, hint: u.email }))} ariaLabel="Add a user" />}
         </div>
         {rename && <RenameModal m={rename} onClose={() => setRename(null)} onSaved={name => { const m = rename; setRename(null); run(() => api.put(`${V1}/groups/${g.id}/members/${m.id}`, { name }), 'Renamed') }} />}

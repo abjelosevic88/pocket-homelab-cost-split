@@ -39,8 +39,8 @@ An expense added over a link has `"source": "<app slug>"` (empty for people), an
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/groups/{id}/members` | `{"name": "Marko"}` or `{"user_id": 2}` (name taken from the account). |
-| `PUT` | `/groups/{id}/members/{mid}` | `{"name"}` and/or `{"user_id": 2}` to link, `{"user_id": 0}` to unlink. |
+| `POST` | `/groups/{id}/members` | `{"name": "Marko"}` or `{"user_id": 2}` (name taken from the account). `{"name": "PSUP project", "kind": "cost_center"}` adds a cost center (see below). |
+| `PUT` | `/groups/{id}/members/{mid}` | `{"name"}` and/or `{"user_id": 2}` to link, `{"user_id": 0}` to unlink. `{"kind": "cost_center"}` / `{"kind": "person"}` turns a member into a cost center or back (refused for an account, a member who paid for expenses, or a cost center that payments bought into). |
 | `DELETE` | `/groups/{id}/members/{mid}` | Only if they are in no expense. |
 
 ## Expenses
@@ -77,14 +77,39 @@ The answer carries the computed parts: each share's `amount` (expense currency) 
 
 **A reimbursement** ("Jelena paid Marko 100 €"): `{"amount": 10000, "paid_by": <Jelena>, "reimbursement": true, "shares": [{"member_id": <Marko>}]}`. Title defaults to "Reimbursement"; it is left out of spending totals.
 
+### Cost centers (projects)
+
+A member has a `kind`: `person` (default) or `cost_center`, a project the people of the group fund up front and that pays them back later. A group can have several. A cost center:
+
+- never carries a personal share and never appears in `balances` / `settlements` (who owes whom);
+- takes a cost as a whole: an expense whose only share is the cost center (`"shares": [{"member_id": <project>}]`) becomes the payer's claim on it. It cannot be split together with people, and it never pays for expenses itself;
+- pays people back with a payment: `{"reimbursement": true, "paid_by": <project>, "shares": [{"member_id": <Ana>}], "amount": …}`. A payment from a person to the cost center is money put into it (a claim too).
+
+**Buying into a cost center's debt.** A payment from B to A with `"cost_center_id": <project>` is B taking over part of what the project owes A: afterwards the project owes B that amount instead of A, and nobody owes anybody personally. A must hold at least that much of a claim on the project. Without `cost_center_id` it stays an ordinary personal payment.
+
+`GET /groups/{id}/balances` answers both books:
+
+```json
+{
+  "currency": "EUR",
+  "balances": [{"member_id": 1, "paid": 0, "owed": 0, "balance": 0}, …],   // people only
+  "settlements": [],                                                        // people only
+  "cost_centers": [{"member_id": 3, "charged": 200000, "repaid": 0, "owes": 200000,
+                    "claims": [{"member_id": 1, "amount": 100000}, {"member_id": 2, "amount": 100000}]}]
+}
+```
+
+A group's `my_balance` is the personal balance; `my_claims` is what its cost centers owe the viewer. The dashboard's `positions[].claims` / `claims_text` and the group lines' `claims` carry the same, and their `settlements` include the cost centers' debts marked `"cost_center": true`. Reports list them under `cost_center_debts`.
+
 ## Currencies & rates
 
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/currencies` | `[{"code": "EUR", "name": "Euro", "decimals": 2}, …]` — the ISO 4217 list. |
-| `GET` | `/categories` | `[{"id": "restaurant", "label": "Restaurants & cafés", "icon": "🍽️", "builtin": true, "sort_order": 3, "count": 12, "fallback": false}, …]`; `fallback` marks where expenses without a category land (General) |
-| `POST` | `/categories` | `{"label": "Ski passes", "icon": "🎿"}` → the category (id is a slug of the label). A label or slug that already exists returns the existing one. Any user. |
-| `PUT` · `DELETE` | `/categories/{id}` | Your own category, or a built-in one if you are an admin. `{"label", "icon", "sort_order"}` / remove (its expenses move to the fallback category). The built-in General can be removed once no expense uses it, and then the first built-in category left becomes the fallback; the last built-in category cannot be removed. `GET /categories` lists the built-in ones, yours (`"mine": true`) and any used in a group you share. |
+| `GET` | `/categories` | `[{"id": "restaurant", "label": "Restaurants & cafés", "icon": "🍽️", "builtin": true, "sort_order": 3, "group_id": 0, "count": 12, "fallback": false}, …]`: the built-in ones (offered in every group, `group_id` 0) and the own categories of every group you may see (`group_id` set, `"mine": true` = you may change it). `?group=ID` narrows it to what that group offers. `fallback` marks where expenses without a category land (General). |
+| `GET` · `POST` | `/groups/{id}/categories` | What the group offers (built-in + its own) / add one to the group: `{"label": "Ski passes", "icon": "🎿"}` → the category (id is a slug of the label). A label or slug the group already offers returns the existing one. |
+| `POST` | `/categories` | Same, with `"group_id"` in the body (required). |
+| `PUT` · `DELETE` | `/categories/{id}` | A category of a group you may see (anyone in the group), or a built-in one if you are an admin. `{"label", "icon", "sort_order"}` / remove (its expenses move to the fallback category). The built-in General can be removed once no expense uses it, and then the first built-in category left becomes the fallback; the last built-in category cannot be removed. An expense may use a built-in category or one of its own group. |
 | `GET` | `/fx?from=USD&to=EUR&date=2026-10-01` | `{"rate": 0.9218, "source": "frankfurter", "date", "example": "92.18 EUR"}`. Cached per pair and day. `502` when no provider knows the pair (or lookups are off). |
 
 ## Home & activity

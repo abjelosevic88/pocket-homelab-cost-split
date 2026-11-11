@@ -34,8 +34,8 @@ func (s *Server) buildReport(r *http.Request) (*report.Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	cats, _ := s.store.ListCategories(r.Context(), userFrom(r.Context()).ID)
-	balances, err := s.store.Balances(r.Context(), g.ID)
+	cats, _ := s.store.ListCategories(r.Context(), userFrom(r.Context()).ID, g.ID)
+	l, err := s.store.Ledger(r.Context(), g.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (s *Server) buildReport(r *http.Request) (*report.Report, error) {
 	for i, j := 0, len(exps)-1; i < j; i, j = i+1, j-1 {
 		exps[i], exps[j] = exps[j], exps[i]
 	}
-	return report.Build(g, cats, exps, balances, f, displayName(userFrom(r.Context()))), nil
+	return report.Build(g, cats, exps, l.Balances, l.CostCenters, f, displayName(userFrom(r.Context()))), nil
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {

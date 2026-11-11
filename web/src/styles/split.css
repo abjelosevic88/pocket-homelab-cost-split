@@ -264,3 +264,10 @@ input.num { width: 90px; text-align: right; }
   .group-line .grp-ico { display: none; }
   .who-owes { margin-left: 0; }
 }
+
+/* ---------- cost centers (projects) ---------- */
+.cc-badge { margin-left: 6px; font-size: 11px; vertical-align: middle; }
+.stats.compact { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 12px; }
+.stats.compact .n { font-size: 15px; }
+.buy-in { border-top: 1px solid var(--border, rgba(127,127,127,.2)); padding-top: 12px; }
+.settle-list li > .row { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

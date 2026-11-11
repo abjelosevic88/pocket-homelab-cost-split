@@ -246,6 +246,8 @@ func (s *Server) Router() http.Handler {
 				r.Get("/export.csv", s.handleExportCSV)
 				r.Get("/report", s.handleReport)
 				r.Get("/report.pdf", s.handleReportPDF)
+				r.Get("/categories", s.handleGroupCategories)
+				r.Post("/categories", s.handleCreateCategory)
 
 				r.Post("/members", s.handleAddMember)
 				r.Put("/members/{mid}", s.handleUpdateMember)
