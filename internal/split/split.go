@@ -173,7 +173,7 @@ func Settle(balances []Balance) []Transfer {
 	}
 	sort.Slice(debtors, less(debtors))
 	sort.Slice(creditors, less(creditors))
-	var out []Transfer
+	out := []Transfer{} // never nil: a settled group answers [] (null broke the Balances page)
 	i, j := 0, 0
 	for i < len(debtors) && j < len(creditors) {
 		d, c := &debtors[i], &creditors[j]

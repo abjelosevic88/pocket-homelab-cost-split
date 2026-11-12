@@ -127,7 +127,7 @@ function BalancesTab({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
   if (!data) return null
   const max = Math.max(1, ...data.balances.map(b => Math.abs(b.balance)))
   const name = (id: number) => memberName(g.members, id)
-  const settled = data.settlements.length === 0
+  const settled = (data.settlements ?? []).length === 0
   return (
     <div className="two-col">
       <Card title={<><Icon name="scale" size={16} />Balances</>}>
@@ -155,7 +155,7 @@ function BalancesTab({ g, onChanged }: { g: GroupT; onChanged: () => void }) {
           <>
             <p className="muted small">The fewest payments that bring everyone to zero. Mark one as paid once the money has moved: it is recorded as a reimbursement.</p>
             <ul className="settle-list">
-              {data.settlements.map((t, i) => (
+              {(data.settlements ?? []).map((t, i) => (
                 <li key={i}>
                   <span className="row wrap grow"><MemberAvatar member={{ id: t.from, name: name(t.from) }} /><b>{name(t.from)}</b><Icon name="arrow-right" size={14} className="muted" /><MemberAvatar member={{ id: t.to, name: name(t.to) }} /><b>{name(t.to)}</b></span>
                   <b><Money minor={t.amount} code={g.currency} /></b>
