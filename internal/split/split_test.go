@@ -69,8 +69,8 @@ func TestSettle(t *testing.T) {
 	if !reflect.DeepEqual(tr, want) {
 		t.Errorf("settle: %+v", tr)
 	}
-	if got := Settle([]Balance{{MemberID: 1, Balance: 0}}); len(got) != 0 {
-		t.Errorf("settled group: %+v", got)
+	if got := Settle([]Balance{{MemberID: 1, Balance: 0}}); got == nil || len(got) != 0 {
+		t.Errorf("settled group must be [] (not nil, it reaches JSON): %+v", got)
 	}
 	// Two creditors, two debtors: at most n-1 transfers.
 	tr = Settle([]Balance{{MemberID: 1, Balance: 30}, {MemberID: 2, Balance: 20}, {MemberID: 3, Balance: -25}, {MemberID: 4, Balance: -25}})
