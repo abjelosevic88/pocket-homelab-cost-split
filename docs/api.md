@@ -33,7 +33,9 @@ An expense added over a link has `"source": "<app slug>"` (empty for people), an
 | `GET` | `/groups/{id}/export.json` · `export.csv` | Full export; CSV has one column per person with their part in the group currency. |
 | `GET` | `/groups/{id}/report` | Filtered summary: who owes whom (`settlements`, the whole group as of now), totals, per person, by category, by month, the `expenses` list, currencies. Settle-up payments are never part of a report (only the debts section counts them). Filters: `from=`, `to=` (YYYY-MM-DD), `categories=a,b`, `member=` (paid or shared), `debts=1` to add the who-owes-whom section. |
 | `GET` | `/groups/{id}/report.pdf` | The same report as an A4 PDF (same filters). |
-| `POST` | `/import` | Body = an `export.json`. Creates a new group "(imported)" with its people and expenses at the stored rates. |
+| `GET` | `/export.json` | Every group you are in (archived too), each as its group export: `{"app":"pocket-split","groups":[…]}`. |
+| `POST` | `/import` | Body = a group's `export.json` or the `/export.json` of all your groups. Each group becomes a new group "(imported)" with its people (by name; only you are linked to an account) and expenses at the stored rates. A group already here is skipped, so the same file twice adds nothing. |
+| `GET` | `/pocket/portable` | What Pocket Move can copy out (`/export.json`) and bring in (`/import`), for `move:export` / `move:import` links. |
 
 ### Members
 

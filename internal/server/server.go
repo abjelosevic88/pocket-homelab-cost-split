@@ -143,6 +143,7 @@ func (s *Server) registerWithCore(ctx context.Context) error {
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "SPLIT",
 		Publishes: []string{"split.expense_created", "split.expense_deleted", "split.settled"},
 		Offers:    linkOffers,
+		Portable:  portable,
 	}
 	// Ask Core for a relying-party client so "Sign in with Pocket Core" needs no configuration.
 	if s.cfg.BaseURL != "" {
@@ -234,6 +235,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/groups", s.handleListGroups)
 			r.Post("/groups", s.handleCreateGroup)
 			r.Post("/import", s.handleImportJSON)
+			r.Get("/export.json", s.handleExportAll)
+			r.Get(strings.TrimPrefix(core.PortablePath, "/api/v1"), portable.Handler())
 			r.Route("/groups/{gid}", func(r chi.Router) {
 				r.Use(s.withGroup)
 				r.Get("/", s.handleGetGroup)
