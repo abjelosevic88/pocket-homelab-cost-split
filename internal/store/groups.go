@@ -41,7 +41,10 @@ func (s *Store) CreateGroup(ctx context.Context, g *Group, members []Member) err
 	if g.CreatedBy != 0 {
 		createdBy = g.CreatedBy
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO groups (name, description, currency, created_by) VALUES (?, ?, ?, ?)`, g.Name, g.Description, g.Currency, createdBy)
+	// CreatedAt is kept when given (a group brought in from an export keeps
+	// when it was started, which is also how a second import finds it).
+	res, err := tx.ExecContext(ctx, `INSERT INTO groups (name, description, currency, created_by, created_at) VALUES (?, ?, ?, ?, COALESCE(NULLIF(?, ''), strftime('%Y-%m-%dT%H:%M:%fZ','now')))`,
+		g.Name, g.Description, g.Currency, createdBy, g.CreatedAt)
 	if err != nil {
 		return err
 	}

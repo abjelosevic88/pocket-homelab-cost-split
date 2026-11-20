@@ -22,6 +22,19 @@ var linkOffers = []core.Offer{
 	{Scope: "expenses:write", Name: "Add expenses", Description: "Add expenses to groups you're in (for example a shopping trip), and change or delete only the ones that app added."},
 }
 
+// portable is what Pocket Move may copy out and bring in for a person
+// (docs/move.md in pocket-homelab-core); Register adds move:export/import.
+// Groups are shared: the export holds every group the person is in; an
+// import makes them the person's own groups, the other members as names.
+var portable = &core.Portable{
+	Exports: []core.PortableExport{
+		{Path: "/api/v1/export.json", File: "split.json", Kind: core.KindPocket, Title: "Every group you are in, with its members, categories and expenses"},
+	},
+	Imports: []core.PortableImport{
+		{Path: "/api/v1/import", Kind: core.KindPocket, ContentType: "application/json", MaxBytes: 64 << 20, Title: "Adds the groups as your own, the other members by name; groups already here are skipped"},
+	},
+}
+
 type linkRoute struct {
 	methods string
 	path    *regexp.Regexp
@@ -67,6 +80,9 @@ func linkApp(ctx context.Context) string {
 
 // linkAllows reports whether a link token with these scopes may make this request.
 func linkAllows(scopes []string, r *http.Request) bool {
+	if portable.LinkAllows(scopes, r) {
+		return true
+	}
 	for _, lr := range linkRoutes {
 		if !strings.Contains(" "+lr.methods+" ", " "+r.Method+" ") || !lr.path.MatchString(r.URL.Path) {
 			continue
