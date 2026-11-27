@@ -13,9 +13,10 @@ import (
 
 // Pocket Core app links (docs/links.md in pocket-homelab-core): another
 // Pocket app may act here for a person with a pcx_ token, only within these
-// scopes. Every route not listed in linkRoutes stays closed to it, it sees
-// exactly the groups the person sees, and it may change or delete only the
-// expenses it added itself (expenses.source = its slug).
+// scopes. Every route not listed in linkRoutes, portable or capabilities
+// stays closed to it, it sees exactly the groups the person sees, and it may
+// change or delete only the expenses it added itself (expenses.source = its
+// slug).
 
 var linkOffers = []core.Offer{
 	{Scope: "groups:read", Name: "See your groups and expenses", Description: "List the groups you're in, their members, categories and expenses."},
@@ -33,6 +34,16 @@ var portable = &core.Portable{
 	Imports: []core.PortableImport{
 		{Path: "/api/v1/import", Kind: core.KindPocket, ContentType: "application/json", MaxBytes: 64 << 20, Title: "Adds the groups as your own, the other members by name; groups already here are skipped"},
 	},
+}
+
+// capabilities are what Pocket Search, Pocket Day and Pocket Hub may ask
+// Split (docs/capabilities.md in pocket-homelab-core); Register adds the
+// pocket:* offers. The routes are in capabilities.go. No quick capture: an
+// expense needs a group, who paid and how it is split.
+var capabilities = core.Capabilities{
+	Search: &core.Searchable{What: "Your groups, and the expenses in them by description, notes or category", Kinds: []string{"group", "expense", "settle-up"}, Bangs: []string{"split", "owe"}},
+	Day:    &core.DayFeed{Label: "Split", One: "expense", Many: "expenses", Unit: "amount", What: "The shared expenses and settle-ups dated that day, with your share of each"},
+	Widget: &core.Widget{Title: "Balances", What: "Who you owe and who owes you, across your groups"},
 }
 
 type linkRoute struct {
@@ -80,7 +91,7 @@ func linkApp(ctx context.Context) string {
 
 // linkAllows reports whether a link token with these scopes may make this request.
 func linkAllows(scopes []string, r *http.Request) bool {
-	if portable.LinkAllows(scopes, r) {
+	if portable.LinkAllows(scopes, r) || capabilities.LinkAllows(scopes, r) {
 		return true
 	}
 	for _, lr := range linkRoutes {

@@ -10,12 +10,16 @@ import (
 
 // linkTestTokens are the pcx_ tokens the fake Core (peruser_test.go) answers
 // as delegated for Ben, with these scopes. pcx_ben_day comes from Pocket Day,
-// the others from Pocket Kitchen.
+// the others from Pocket Kitchen. The pocket:* ones are for capabilities_test.go.
 var linkTestTokens = map[string]string{
-	"pcx_ben_full":  "groups:read expenses:write",
-	"pcx_ben_read":  "groups:read",
-	"pcx_ben_write": "expenses:write",
-	"pcx_ben_day":   "groups:read expenses:write",
+	"pcx_ben_full":    "groups:read expenses:write",
+	"pcx_ben_read":    "groups:read",
+	"pcx_ben_write":   "expenses:write",
+	"pcx_ben_day":     "groups:read expenses:write",
+	"pcx_ben_search":  "pocket:search",
+	"pcx_ben_onday":   "pocket:day",
+	"pcx_ben_widget":  "pocket:widget",
+	"pcx_ben_capture": "pocket:capture",
 }
 
 // A linked app (Pocket Kitchen) acting for Ben through Pocket Core sees only

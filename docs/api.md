@@ -163,6 +163,16 @@ A [Homepage](https://gethomepage.dev) `customapi` widget:
 }
 ```
 
+## Pocket Search, Pocket Day and Pocket Hub
+
+The same routes for every Pocket app (docs/capabilities.md in pocket-homelab-core). Each answers as the person, over the groups they see (the ones they created or are a member of), and each opens to a Pocket Core link token with its own scope only; `groups:read` and `expenses:write` do not open them. There is no quick capture: an expense needs a group, who paid and how it is split.
+
+| Method | Path | Scope | Notes |
+|---|---|---|---|
+| `GET` | `/pocket/search?q&limit` | `pocket:search` | `{items}`: the groups whose name or description has every word, then the expenses and payments whose title, notes or category has them, newest first. A group's `snippet` is its people and where you stand ("Ana, Marko and you · you owe Ana 12.50 EUR", or "all settled"); an expense's is amount · who paid · group · date. `kind` is `group`, `expense` or `settle-up`; `id` is `group:<id>` or `expense:<id>`; `url` opens the group or the expense. |
+| `GET` | `/pocket/day/{date}` | `pocket:day` | `{date, summary, items, metrics}`: the expenses and payments dated that day. An expense has `sub` (group · who paid, or "you paid 54.00 EUR, split with Ana and Marko"), `amount` + `currency` = your own share in the currency it was paid in (minor units; none when it was not yours), `kind` `expense`. A payment has `kind` `settle-up`, no amount, and says who paid whom in `sub`. `summary` is like "Dinner split with Ana and Marko, your share 18.00 EUR" or "3 expenses, your share 42.50 EUR; 1 settle-up"; metrics: *Your share* and *You paid*. |
+| `GET` | `/pocket/widget` | `pocket:widget` | `{line, metrics, items, url}`: your balances in the groups that are not archived, as the home page counts them. `line` is "You owe 24.50 EUR, you are owed 60.00 EUR" or "All settled"; the items are the payments that would settle you ("You owe Ana 12.50 EUR", "Marko owes you 30.00 EUR", what a project owes you back), largest first, with the group as `detail`. Nothing when you have no group. |
+
 ## Users, settings, tokens
 
 | Method | Path | Notes |

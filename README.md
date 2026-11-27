@@ -66,6 +66,8 @@ Splitwise wants a subscription, Spliit wants Postgres and a Vercel account. This
 
 **Offers app links** (Pocket Core 0.5+): another Pocket app the person allowed in Core can act for them with a five-minute `pcx_` token. `groups:read` lists the groups they are in with members, expenses and categories; `expenses:write` adds expenses to those groups and changes or deletes only the ones that app added (stored with the app's name in `source`, shown as “via Pocket Kitchen” on the expense and in the activity feed). Every other route answers 403. Pocket Kitchen uses it to post a shopping trip as a shared expense; Pocket Day reads the day's shared expenses.
 
+Pocket Search, Pocket Day and Pocket Hub find Split on their own, with nothing to set up in either: your groups and the expenses in them (by description, notes or category) turn up in Search, also with `!split` and `!owe`, each group with its people and where you stand ("you owe Ana 12.50 EUR"); Hub shows a *Balances* widget with who you owe and who owes you, the largest first; and the day's expenses and settle-ups are offered to Day with your own share of each (Pocket Day keeps its own reading through `groups:read` for now). Each sees exactly the groups you see in the app. None of them can add an expense or settle up. The routes are in [docs/api.md](docs/api.md#pocket-search-pocket-day-and-pocket-hub).
+
 ## Run it
 
 ```bash

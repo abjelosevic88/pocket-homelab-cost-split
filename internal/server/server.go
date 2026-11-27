@@ -139,11 +139,12 @@ func (s *Server) registerWithCore(ctx context.Context) error {
 	m := core.Manifest{
 		Slug: "split", Name: "Pocket Split",
 		Description: "A small self-hosted cost splitter for trips, flats and dinners: who paid what, in any currency, and who owes whom.",
-		Icon:        "/favicon.svg", Version: Version,
+		Icon:        "/favicon.svg", Category: "Money", Version: Version,
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "SPLIT",
-		Publishes: []string{"split.expense_created", "split.expense_deleted", "split.settled"},
-		Offers:    linkOffers,
-		Portable:  portable,
+		Publishes:    []string{"split.expense_created", "split.expense_deleted", "split.settled"},
+		Offers:       linkOffers,
+		Portable:     portable,
+		Capabilities: capabilities,
 	}
 	// Ask Core for a relying-party client so "Sign in with Pocket Core" needs no configuration.
 	if s.cfg.BaseURL != "" {
@@ -237,6 +238,10 @@ func (s *Server) Router() http.Handler {
 			r.Post("/import", s.handleImportJSON)
 			r.Get("/export.json", s.handleExportAll)
 			r.Get(strings.TrimPrefix(core.PortablePath, "/api/v1"), portable.Handler())
+			// what Pocket Search, Pocket Day and Pocket Hub ask (capabilities.go)
+			r.Get("/pocket/search", core.SearchHandler(s.pocketSearch))
+			r.Get("/pocket/day/{date}", core.DayHandler(s.pocketDay))
+			r.Get("/pocket/widget", core.WidgetHandler(s.pocketWidget))
 			r.Route("/groups/{gid}", func(r chi.Router) {
 				r.Use(s.withGroup)
 				r.Get("/", s.handleGetGroup)
